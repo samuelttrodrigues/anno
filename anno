@@ -1,5 +1,3 @@
-
-
 #!/bin/bash
 
 # Anno - A simple annotation script
@@ -7,6 +5,9 @@
 # --- Configuration ---
 # The directory where this script is located
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Set the python path to include the script directory
+export PYTHONPATH="$SCRIPT_DIR"
 
 # The main application to run (Python GUI)
 APP_TO_RUN="$SCRIPT_DIR/anno_app/anno_viewer.py"
@@ -144,7 +145,10 @@ case "$1" in
         python3 "$TERMINAL_VIEWER" --search "$2"
         ;;
     --export)
-        # The python script will handle printing success/error messages
+        if [ -z "$2" ]; then
+            echo "Error: Export directory required for --export option."
+            exit 1
+        fi
         python3 -c "from anno_app.anno_utils import export_notes; export_notes('$2')"
         ;;
     --backup)
@@ -178,6 +182,6 @@ case "$1" in
         echo "Use 'anno --help' for usage information."
         exit 1
         ;;
-esac
+ësac
 
 exit 0

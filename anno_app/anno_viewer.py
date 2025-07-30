@@ -1,8 +1,15 @@
+
+import sys
+import os
+
+# This is a workaround to make the app runnable from the command line
+if os.path.basename(os.getcwd()) == 'anno_app':
+    sys.path.append(os.path.dirname(os.getcwd()))
+
 import tkinter as tk
 from tkinter import ttk, font, messagebox, filedialog
 import json
 from datetime import datetime
-import os
 from collections import defaultdict
 import re
 
@@ -318,7 +325,8 @@ class AnnotationViewer(tk.Tk):
                 self.text_area.tag_add("checklist_done", f"{line_num}.0", f"{line_num}.end")
             elif re.match(r'^\s*\[ \].*$', line):
                 self.text_area.tag_add("checklist_pending", f"{line_num}.0", f"{line_num}.end")
-            elif re.match(r'^\s*([\*\-]|\d+\.)\s+.*$', line):
+            elif re.match(r'^\s*([\*\-]|
++\.)\s+.*$', line):
                 self.text_area.tag_add("list_bullet", f"{line_num}.0", f"{line_num}.end")
 
     def enter_edit_mode(self):
