@@ -1,5 +1,6 @@
+
 import tkinter as tk
-from tkinter import ttk, font
+from tkinter import ttk, font, messagebox
 import json
 from datetime import datetime
 import os
@@ -131,10 +132,17 @@ class AnnotationViewer(tk.Tk):
 
         top_bar = ttk.Frame(content_card, style="Card.TFrame")
         top_bar.grid(row=0, column=0, sticky="ew", pady=(0, 10))
-        self.edit_button = ttk.Button(top_bar, text="Edit", command=self.enter_edit_mode, state=tk.DISABLED)
+        
+        button_container = ttk.Frame(top_bar, style="Card.TFrame")
+        button_container.pack(side=tk.LEFT)
+
+        self.edit_button = ttk.Button(button_container, text="Edit", command=self.enter_edit_mode, state=tk.DISABLED)
         self.edit_button.pack(side=tk.LEFT)
-        self.save_button = ttk.Button(top_bar, text="Save", command=self.save_note)
-        self.cancel_button = ttk.Button(top_bar, text="Cancel", command=lambda: self.exit_edit_mode(cancel=True))
+        self.delete_button = ttk.Button(button_container, text="Delete", command=self.delete_note, state=tk.DISABLED)
+        self.delete_button.pack(side=tk.LEFT, padx=(5,0))
+
+        self.save_button = ttk.Button(button_container, text="Save", command=self.save_note)
+        self.cancel_button = ttk.Button(button_container, text="Cancel", command=lambda: self.exit_edit_mode(cancel=True))
 
         theme_frame = ttk.Frame(top_bar, style="Card.TFrame")
         theme_frame.pack(side=tk.RIGHT)
@@ -151,6 +159,7 @@ class AnnotationViewer(tk.Tk):
         self.paned_window.add(content_card, weight=3)
 
         self.tree.bind("<<TreeviewSelect>>", self.on_tree_select)
+        self.tree.bind("<Double-1>", self.on_double_click)
         self.theme_menu.bind("<<ComboboxSelected>>", self.on_theme_change)
         self.search_entry.bind("<Return>", self.search_by_tag)
 
@@ -179,7 +188,6 @@ class AnnotationViewer(tk.Tk):
             tags_match = re.match(r'^\s*\[(.*)\]\s*$', lines[1])
             if tags_match:
                 tags_str = tags_match.group(1)
-                # Strip whitespace and the leading # to get clean tags
                 tags = [tag.strip().lstrip('#') for tag in tags_str.split(',') if tag.strip()]
                 body_start_index = 2
 
@@ -207,7 +215,7 @@ class AnnotationViewer(tk.Tk):
             })
 
         self.all_notes.sort(key=lambda x: x["timestamp"], reverse=True)
-        self.clear_search() # Populate with all notes initially
+        self.clear_search()
         self.load_last_note()
 
     def load_last_note(self):
@@ -238,16 +246,29 @@ class AnnotationViewer(tk.Tk):
         selected_id = self.tree.selection()
         if not selected_id or not str(selected_id[0]).isdigit():
             self.edit_button.config(state=tk.DISABLED)
+            self.delete_button.config(state=tk.DISABLED)
             return
         self.current_note_id = int(selected_id[0])
         self.edit_button.config(state=tk.NORMAL)
+        self.delete_button.config(state=tk.NORMAL)
         self.display_note()
+
+    def on_double_click(self, event):
+        if self.tree.selection():
+            self.enter_edit_mode()
 
     def display_note(self):
         if self.current_note_id is None: return
         
         note = next((n for n in self.all_notes if n['id'] == self.current_note_id), None)
-        if not note: return
+        if not note: 
+            self.text_area.config(state=tk.NORMAL)
+            self.text_area.delete("1.0", tk.END)
+            self.text_area.config(state=tk.DISABLED)
+            self.current_note_id = None
+            self.edit_button.config(state=tk.DISABLED)
+            self.delete_button.config(state=tk.DISABLED)
+            return
 
         self.text_area.config(state=tk.NORMAL)
         self.text_area.delete("1.0", tk.END)
@@ -269,6 +290,7 @@ class AnnotationViewer(tk.Tk):
     def enter_edit_mode(self):
         if self.current_note_id is None: return
         self.edit_button.pack_forget()
+        self.delete_button.pack_forget()
         self.save_button.pack(side=tk.LEFT, padx=(0, 5))
         self.cancel_button.pack(side=tk.LEFT)
         self.style_bar.grid(row=2, column=0, sticky="ew", pady=(5, 0))
@@ -279,6 +301,7 @@ class AnnotationViewer(tk.Tk):
         self.save_button.pack_forget()
         self.cancel_button.pack_forget()
         self.edit_button.pack(side=tk.LEFT)
+        self.delete_button.pack(side=tk.LEFT, padx=(5,0))
         self.style_bar.grid_forget()
         if cancel:
             self.display_note()
@@ -287,7 +310,6 @@ class AnnotationViewer(tk.Tk):
         if self.current_note_id is None: return
         new_content = self.text_area.get("1.0", tk.END).strip()
         
-        # Find the original index in the raw_notes list
         note_to_update = next((n for n in self.all_notes if n['id'] == self.current_note_id), None)
         if note_to_update:
             original_index = -1
@@ -303,6 +325,18 @@ class AnnotationViewer(tk.Tk):
         
         self.load_annotations()
         self.exit_edit_mode(cancel=True)
+
+    def delete_note(self):
+        if self.current_note_id is None: return
+
+        note_to_delete = next((n for n in self.all_notes if n['id'] == self.current_note_id), None)
+        if not note_to_delete: return
+
+        if messagebox.askyesno("Delete Note", f"Are you sure you want to delete the note titled: \n'{note_to_delete['title']}'?"):
+            self.raw_notes = [n for n in self.raw_notes if n['timestamp'] != note_to_delete['timestamp']]
+            with open(ANNOTATIONS_FILE, "w") as f:
+                json.dump(self.raw_notes, f, indent=2)
+            self.load_annotations()
 
     def on_theme_change(self, event):
         self.settings["theme"] = self.current_theme.get()
@@ -335,8 +369,8 @@ class AnnotationViewer(tk.Tk):
 
     def clear_search(self):
         self.search_var.set("")
-        self.tree.focus_set()
         self.populate_tree(self.all_notes)
+        self.tree.focus_set()
 
 if __name__ == "__main__":
     app = AnnotationViewer()

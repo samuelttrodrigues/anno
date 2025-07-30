@@ -61,6 +61,12 @@ delete_annotation() {
     echo "Annotation deleted."
 }
 
+search_notes_by_tag() {
+    local search_term=$1
+    python3 "${VIEWER_TERMINAL_SCRIPT}" --search "$search_term"
+}
+
+
 # --- Main Logic ---
 
 ensure_annotations_file_exists
@@ -86,16 +92,20 @@ case "$1" in
                         delete_annotation "$index"
                     fi
                 else
-                    # If the file is not empty but doesn't match, something is wrong.
-                    # We break to be safe.
                     break
                 fi
             else
-                # If the action file is empty, it means the user quit the viewer.
                 break
             fi
             rm "${ACTION_FILE}"
         done
+        ;;
+    -s)
+        if [ -z "$2" ]; then
+            echo "Error: Please provide a search term after the -s flag."
+            exit 1
+        fi
+        search_notes_by_tag "$2"
         ;;
     *)
         add_annotation
