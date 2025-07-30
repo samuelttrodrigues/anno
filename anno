@@ -178,6 +178,6 @@ case "$1" in
         echo "Use 'anno --help' for usage information."
         exit 1
         ;;
-ësac
+esac
 
 exit 0
