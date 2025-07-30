@@ -1,5 +1,3 @@
-
-
 import json
 import os
 import sys
@@ -47,7 +45,7 @@ def apply_terminal_styling(text):
     text = re.sub(r'^\s*\[x\](.*)$' , replace_checklist_done, text, flags=re.MULTILINE)
     text = re.sub(r'^\s*\[ \](.*)$' , replace_checklist_pending, text, flags=re.MULTILINE)
     text = re.sub(r'^\s*[\*\-](.*)$'   , replace_list, text, flags=re.MULTILINE)
-    text = re.sub(r'^(\s*\d+\.)(.*)$' , replace_list, text, flags=re.MULTILINE)
+    text = re.sub(r'^(\s*\d+\.)\s*(.*)$' , replace_list, text, flags=re.MULTILINE)
     text = re.sub(r"<h>(.*?)</h>", f"{Colors.BG_YELLOW}{Colors.BLACK}\1{Colors.RESET}", text, flags=re.DOTALL)
     text = re.sub(r"<i>(.*?)</i>", f"{Colors.BOLD}{Colors.RED}\1{Colors.RESET}", text, flags=re.DOTALL)
     text = re.sub(r"<c>(.*?)</c>", f"{Colors.BOLD}{Colors.CYAN}\1{Colors.RESET}", text, flags=re.DOTALL)
@@ -110,7 +108,7 @@ def read_note(index):
         eprint(f"{Colors.YELLOW}Tags: {json.dumps(tags)}{Colors.RESET}")
     eprint("---")
     eprint(apply_terminal_styling(body))
-    eprint(f"\n{Colors.BOLD}{Colors.GREEN}--- End of Note ---{Colors.RESET}")
+    eprint(f"\n{Colors.BOLD}{Colors.GREEN}--- End of Note ---")
 
 def interactive_view():
     all_notes = get_all_notes()

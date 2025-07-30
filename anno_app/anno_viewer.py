@@ -1,4 +1,3 @@
-
 import sys
 import os
 
@@ -285,8 +284,7 @@ class AnnotationViewer(tk.Tk):
         self.delete_button.config(state=tk.NORMAL)
         self.display_note()
 
-    def on_double_click(self, event):
-        if self.tree.selection(): self.enter_edit_mode()
+    def on_double_click(self, event):n        if self.tree.selection(): self.enter_edit_mode()
 
     def display_note(self):
         if self.current_note_id is None: return
