@@ -1,113 +1,183 @@
+
+
 #!/bin/bash
 
+# Anno - A simple annotation script
+
 # --- Configuration ---
-ANNOTATIONS_FILE="${HOME}/.local/share/annotations.json"
-VIEWER_ORIGINAL_SCRIPT="/home/sam/Projects/Annotation/anno_app/anno_viewer.py"
-VIEWER_TERMINAL_SCRIPT="/home/sam/Projects/Annotation/anno_app/anno_terminal_viewer.py"
+# The directory where this script is located
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# The main application to run (Python GUI)
+APP_TO_RUN="$SCRIPT_DIR/anno_app/anno_viewer.py"
+
+# The terminal viewer application
+TERMINAL_VIEWER="$SCRIPT_DIR/anno_app/anno_terminal_viewer.py"
+
+# The utility script for backups/exports
+UTILS_SCRIPT="$SCRIPT_DIR/anno_app/anno_utils.py"
+
+# The file where annotations are stored
+ANNOTATIONS_FILE="$HOME/.local/share/annotations.json"
+
+# Temporary file for editor content
+TMP_FILE=$(mktemp)
 
 # --- Functions ---
 
-ensure_annotations_file_exists() {
-    mkdir -p "$(dirname "${ANNOTATIONS_FILE}")"
-    if [ ! -f "${ANNOTATIONS_FILE}" ]; then
-        echo "[]" > "${ANNOTATIONS_FILE}"
-    fi
-}
-
-add_annotation() {
-    if ! command -v jq &> /dev/null; then echo "Error: 'jq' is not installed."; exit 1; fi
-    TMP_FILE=$(mktemp)
-    nano "${TMP_FILE}" < /dev/tty > /dev/tty
-    if [ -s "${TMP_FILE}" ]; then
-        CONTENT=$(<"${TMP_FILE}")
-        TIMESTAMP=$(date --iso-8601=seconds)
-        jq --arg ts "${TIMESTAMP}" --arg content "${CONTENT}" '. += [{timestamp: $ts, content: $content}]' "${ANNOTATIONS_FILE}" > "${ANNOTATIONS_FILE}.tmp" && mv "${ANNOTATIONS_FILE}.tmp" "${ANNOTATIONS_FILE}"
-        echo "Annotation saved."
-    else
-        echo "Annotation canceled."
-    fi
-    rm "${TMP_FILE}"
-}
-
-edit_annotation() {
-    local index=$1
-    if ! command -v jq &> /dev/null; then echo "Error: 'jq' is not installed."; exit 1; fi
+# Function to create a new annotation
+create_new_note() {
+    # Pre-populate the temp file with the template
+    echo -e "New Annotation Title\n[#tag1, #tag2]\n\n" > "$TMP_FILE"
     
-    jq 'sort_by(.timestamp) | reverse' "${ANNOTATIONS_FILE}" > "${ANNOTATIONS_FILE}.tmp" && mv "${ANNOTATIONS_FILE}.tmp" "${ANNOTATIONS_FILE}"
-
-    current_content=$(jq -r --argjson index "$index" '.[$index].content' "${ANNOTATIONS_FILE}")
-    TMP_FILE=$(mktemp)
-    echo -n "${current_content}" > "${TMP_FILE}"
+    # Open the temp file in the default editor
+    ${EDITOR:-nano} "$TMP_FILE"
     
-    nano "${TMP_FILE}" < /dev/tty > /dev/tty
-    
-    NEW_CONTENT=$(<"${TMP_FILE}")
-    if [[ "$NEW_CONTENT" != "$current_content" ]]; then
-        jq --argjson index "$index" --arg content "$NEW_CONTENT" '.[$index].content = $content' "${ANNOTATIONS_FILE}" > "${ANNOTATIONS_FILE}.tmp" && mv "${ANNOTATIONS_FILE}.tmp" "${ANNOTATIONS_FILE}"
-        echo "Annotation updated."
-    else
-        echo "Edit canceled. No changes made."
+    # Check if the file content is still the default template
+    if grep -q "New Annotation Title" "$TMP_FILE" && grep -q "[#tag1, #tag2]" "$TMP_FILE"; then
+        echo "Annotation canceled. No changes made."
+        rm "$TMP_FILE"
+        return
     fi
-    rm "${TMP_FILE}"
+
+    # Read the content from the editor
+    local content
+    content=$(<"$TMP_FILE")
+    rm "$TMP_FILE"
+
+    # Ensure the annotations file exists and is a valid JSON array
+    if [ ! -f "$ANNOTATIONS_FILE" ]; then
+        mkdir -p "$(dirname "$ANNOTATIONS_FILE")"
+        echo "[]" > "$ANNOTATIONS_FILE"
+    fi
+
+    # Create a JSON object for the new note
+    local timestamp
+    timestamp=$(date -u +"%Y-%m-%dT%H:%M:%S.%6NZ")
+    local new_note
+    new_note=$(jq -n --arg content "$content" --arg timestamp "$timestamp" '{content: $content, timestamp: $timestamp}')
+
+    # Add the new note to the JSON array
+    jq --argjson new_note "$new_note" '. + [$new_note]' "$ANNOTATIONS_FILE" > "${ANNOTATIONS_FILE}.tmp" && mv "${ANNOTATIONS_FILE}.tmp" "$ANNOTATIONS_FILE"
+    echo "Annotation saved."
 }
 
-delete_annotation() {
-    local index=$1
-    if ! command -v jq &> /dev/null; then echo "Error: 'jq' is not installed."; exit 1; fi
+# Function to handle the interactive terminal viewer
+run_terminal_viewer() {
+    local communication_file
+    communication_file=$(mktemp)
 
-    jq 'sort_by(.timestamp) | reverse' "${ANNOTATIONS_FILE}" > "${ANNOTATIONS_FILE}.tmp" && mv "${ANNOTATIONS_FILE}.tmp" "${ANNOTATIONS_FILE}"
+    while true; do
+        # Run the Python script and capture its output to the communication file
+        python3 "$TERMINAL_VIEWER" > "$communication_file"
+        
+        # Check if the file has content
+        if [ -s "$communication_file" ]; then
+            local command
+            command=$(<"$communication_file")
+            rm "$communication_file"
 
-    jq --argjson index "$index" 'del(.[$index])' "${ANNOTATIONS_FILE}" > "${ANNOTATIONS_FILE}.tmp" && mv "${ANNOTATIONS_FILE}.tmp" "${ANNOTATIONS_FILE}"
-    echo "Annotation deleted."
-}
+            # Parse the command: ACTION:INDEX
+            local action
+            action=$(echo "$command" | cut -d':' -f2)
+            local index
+            index=$(echo "$command" | cut -d':' -f3)
 
-search_notes_by_tag() {
-    local search_term=$1
-    python3 "${VIEWER_TERMINAL_SCRIPT}" --search "$search_term"
-}
+            # Get the current notes
+            local notes
+            notes=$(jq '.' "$ANNOTATIONS_FILE")
+            local note_to_process
+            note_to_process=$(echo "$notes" | jq --argjson i "$index" '.[$i]')
 
+            if [ "$action" == "EDIT" ]; then
+                local content
+                content=$(echo "$note_to_process" | jq -r '.content')
+                echo "$content" > "$TMP_FILE"
+                ${EDITOR:-nano} "$TMP_FILE"
+                local new_content
+                new_content=$(<"$TMP_FILE")
+                rm "$TMP_FILE"
 
-# --- Main Logic ---
+                # Update the note in the main JSON file
+                local updated_notes
+                updated_notes=$(echo "$notes" | jq --argjson i "$index" --arg new_content "$new_content" '.[$i].content = $new_content')
+                echo "$updated_notes" > "$ANNOTATIONS_FILE"
+                echo "Note updated."
+                # Loop continues
 
-ensure_annotations_file_exists
-
-case "$1" in
-    -o)
-        python3 "${VIEWER_ORIGINAL_SCRIPT}"
-        ;;
-    -t)
-        while true; do
-            ACTION_FILE=$(mktemp)
-
-            python3 "${VIEWER_TERMINAL_SCRIPT}" > "${ACTION_FILE}" 2>/dev/tty
-
-            if [ -s "${ACTION_FILE}" ]; then
-                ACTION_LINE=$(<"${ACTION_FILE}")
-                if [[ $ACTION_LINE == ACTION:* ]]; then
-                    IFS=':' read -r _ action index <<< "$ACTION_LINE"
-                    
-                    if [ "$action" == "EDIT" ]; then
-                        edit_annotation "$index"
-                    elif [ "$action" == "DELETE" ]; then
-                        delete_annotation "$index"
-                    fi
-                else
-                    break
-                fi
-            else
-                break
+            elif [ "$action" == "DELETE" ]; then
+                local updated_notes
+                updated_notes=$(echo "$notes" | jq --argjson i "$index" 'del(.[$i])')
+                echo "$updated_notes" > "$ANNOTATIONS_FILE"
+                echo "Note deleted."
+                # Loop continues
             fi
-            rm "${ACTION_FILE}"
-        done
+        else
+            # If the python script exits without writing a command, break the loop
+            rm "$communication_file"
+            break
+        fi
+    done
+}
+
+# --- Main Script Logic ---
+
+# No arguments: Create a new note
+if [ $# -eq 0 ]; then
+    create_new_note
+    exit 0
+fi
+
+# Argument parsing
+case "$1" in
+    -o|--open)
+        python3 "$APP_TO_RUN"
         ;;
-    -s)
+    -t|--terminal)
+        run_terminal_viewer
+        ;;
+    -s|--search)
         if [ -z "$2" ]; then
-            echo "Error: Please provide a search term after the -s flag."
+            echo "Error: Search term required for -s option."
             exit 1
         fi
-        search_notes_by_tag "$2"
+        python3 "$TERMINAL_VIEWER" --search "$2"
+        ;;
+    --export)
+        # The python script will handle printing success/error messages
+        python3 -c "from anno_app.anno_utils import export_notes; export_notes('$2')"
+        ;;
+    --backup)
+        python3 -c "from anno_app.anno_utils import backup_notes; backup_notes()"
+        ;;
+    --restore)
+        # This will be an interactive restore process handled by a dedicated python script call
+        python3 -c "from anno_app.anno_utils import list_backups, restore_notes; backups = list_backups(); \
+            if not backups: print('No backups found.'); exit(); \
+            print('Available backups:\n'); \
+            for i, b in enumerate(backups): print(f'{i+1}: {b}'); \
+            try: choice = int(input('\nEnter number of backup to restore: ')); \
+            except (ValueError, EOFError, KeyboardInterrupt): print('\nInvalid choice. Aborting.'); exit(); \
+            if 1 <= choice <= len(backups): restore_notes(backups[choice-1]); \
+            else: print('Invalid number.')"
+        ;;
+    -h|--help)
+        echo "Usage: anno [option] [argument]"
+        echo "Options:"
+        echo "  (no option)    Create a new annotation."
+        echo "  -o, --open       Open the GUI annotation viewer."
+        echo "  -t, --terminal   Open the interactive terminal viewer."
+        echo "  -s, --search TAG Search for notes with a specific tag."
+        echo "  --export DIR     Export all notes to a specified directory."
+        echo "  --backup         Create a backup of your notes."
+        echo "  --restore        Restore notes from a backup."
+        echo "  -h, --help       Show this help message."
         ;;
     *)
-        add_annotation
+        echo "Invalid option: $1" >&2
+        echo "Use 'anno --help' for usage information."
+        exit 1
         ;;
-esac
+ësac
+
+exit 0

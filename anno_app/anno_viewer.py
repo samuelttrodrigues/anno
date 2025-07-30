@@ -1,10 +1,13 @@
 import tkinter as tk
-from tkinter import ttk, font, messagebox
+from tkinter import ttk, font, messagebox, filedialog
 import json
 from datetime import datetime
 import os
 from collections import defaultdict
 import re
+
+# Import the new utility functions
+from anno_app.anno_utils import export_notes, backup_notes, list_backups, restore_notes
 
 # --- Configuration ---
 CONFIG_DIR = os.path.expanduser("~/.config/anno")
@@ -63,6 +66,7 @@ def load_settings():
     except (json.JSONDecodeError, IOError):
         return {"theme": "Pastel", "last_note": None}
 
+
 def save_settings(settings):
     os.makedirs(CONFIG_DIR, exist_ok=True)
     with open(SETTINGS_FILE, "w") as f:
@@ -96,6 +100,18 @@ class AnnotationViewer(tk.Tk):
         self.style.theme_use("clam")
 
     def create_widgets(self):
+        # --- Menu Bar ---
+        self.menu_bar = tk.Menu(self)
+        self.config(menu=self.menu_bar)
+        file_menu = tk.Menu(self.menu_bar, tearoff=0)
+        self.menu_bar.add_cascade(label="File", menu=file_menu)
+        file_menu.add_command(label="Export Notes...", command=self.gui_export_notes)
+        file_menu.add_separator()
+        file_menu.add_command(label="Backup Now", command=self.gui_backup_notes)
+        file_menu.add_command(label="Restore from Backup...", command=self.gui_restore_notes)
+        file_menu.add_separator()
+        file_menu.add_command(label="Exit", command=self.on_closing)
+
         self.main_frame = ttk.Frame(self, padding=15)
         self.main_frame.pack(fill=tk.BOTH, expand=True)
         self.paned_window = ttk.PanedWindow(self.main_frame, orient=tk.HORIZONTAL)
@@ -262,8 +278,7 @@ class AnnotationViewer(tk.Tk):
         self.delete_button.config(state=tk.NORMAL)
         self.display_note()
 
-    def on_double_click(self, event):
-        if self.tree.selection(): self.enter_edit_mode()
+    def on_double_click(self, event):n        if self.tree.selection(): self.enter_edit_mode()
 
     def display_note(self):
         if self.current_note_id is None: return
@@ -298,9 +313,9 @@ class AnnotationViewer(tk.Tk):
         
         for i, line in enumerate(content.split('\n')):
             line_num = i + 1
-            if re.match(r'^\s*\[x\]\s*.*$', line):
+            if re.match(r'^\s*\[x\].*$', line):
                 self.text_area.tag_add("checklist_done", f"{line_num}.0", f"{line_num}.end")
-            elif re.match(r'^\s*\[ \]\s*.*$', line):
+            elif re.match(r'^\s*\[ \].*$', line):
                 self.text_area.tag_add("checklist_pending", f"{line_num}.0", f"{line_num}.end")
             elif re.match(r'^\s*([\*\-]|\d+\.)\s+.*$', line):
                 self.text_area.tag_add("list_bullet", f"{line_num}.0", f"{line_num}.end")
@@ -388,6 +403,56 @@ class AnnotationViewer(tk.Tk):
         self.search_var.set("")
         self.populate_tree(self.all_notes)
         self.tree.focus_set()
+
+    # --- GUI Wrappers for Utils ---
+    def gui_export_notes(self):
+        target_dir = filedialog.askdirectory(title="Select Export Directory")
+        if target_dir:
+            if export_notes(target_dir):
+                messagebox.showinfo("Export Successful", f"All notes have been exported to {target_dir}")
+            else:
+                messagebox.showerror("Export Failed", "Could not export notes. See terminal for details.")
+
+    def gui_backup_notes(self):
+        backup_path = backup_notes()
+        if backup_path:
+            messagebox.showinfo("Backup Successful", f"Backup created at:\n{backup_path}")
+        else:
+            messagebox.showerror("Backup Failed", "Could not create backup. See terminal for details.")
+
+    def gui_restore_notes(self):
+        backups = list_backups()
+        if not backups:
+            messagebox.showinfo("Restore", "No backups found.")
+            return
+
+        # We need a new Toplevel window to ask the user which backup to restore
+        win = tk.Toplevel(self)
+        win.title("Restore from Backup")
+        ttk.Label(win, text="Select a backup to restore:").pack(padx=10, pady=10)
+        
+        listbox = tk.Listbox(win, width=50, height=15)
+        listbox.pack(padx=10, pady=10)
+        for b in backups:
+            listbox.insert(tk.END, b)
+
+        def on_restore():
+            selection = listbox.curselection()
+            if not selection:
+                messagebox.showwarning("No Selection", "Please select a backup file.")
+                return
+            
+            selected_backup = listbox.get(selection[0])
+            if messagebox.askyesno("Confirm Restore", f"Are you sure you want to restore from:\n{selected_backup}\n\nThis will overwrite your current notes."):
+                if restore_notes(selected_backup):
+                    messagebox.showinfo("Restore Successful", "Notes restored. The application will now reload.")
+                    win.destroy()
+                    self.load_annotations() # Reload notes
+                else:
+                    messagebox.showerror("Restore Failed", "Could not restore notes. See terminal for details.")
+        
+        ttk.Button(win, text="Restore", command=on_restore).pack(pady=5)
+        ttk.Button(win, text="Cancel", command=win.destroy).pack(pady=5)
 
 if __name__ == "__main__":
     app = AnnotationViewer()
