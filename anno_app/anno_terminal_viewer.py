@@ -1,5 +1,3 @@
-
-
 import json
 import os
 import sys
@@ -40,17 +38,14 @@ def parse_note_content(content):
     return title, tags, body
 
 def apply_terminal_styling(text):
-    # Use a function for substitution to avoid issues with backslashes
-    def replace_checklist_done(m): return f"{Colors.GREEN}✔{Colors.RESET}{m.group(1)}"
-    def replace_checklist_pending(m): return f"{Colors.RED}☐{Colors.RESET}{m.group(1)}"
-    def replace_list(m): return f"{Colors.YELLOW}•{Colors.RESET}{m.group(1)}"
+    def replace_checklist_done(m): return f"{Colors.GREEN}✔ {m.group(1).lstrip()}{Colors.RESET}"
+    def replace_checklist_pending(m): return f"{Colors.RED}☐ {m.group(1).lstrip()}{Colors.RESET}"
+    def replace_list(m): return f"{Colors.YELLOW}• {m.group(1).lstrip()}{Colors.RESET}"
 
-    # Note: Order matters here. More specific tags should come first.
     text = re.sub(r'^\s*\[x\](.*)$' , replace_checklist_done, text, flags=re.MULTILINE)
     text = re.sub(r'^\s*\[ \](.*)$' , replace_checklist_pending, text, flags=re.MULTILINE)
     text = re.sub(r'^\s*[\*\-](.*)$'   , replace_list, text, flags=re.MULTILINE)
-    text = re.sub(r'^\s*\d+\.(.*)$' , replace_list, text, flags=re.MULTILINE)
-    # Custom tags
+    text = re.sub(r'^\s*\d+\.\s*(.*)$' , replace_list, text, flags=re.MULTILINE)
     text = re.sub(r"<h>(.*?)</h>", f"{Colors.BG_YELLOW}{Colors.BLACK}\1{Colors.RESET}", text, flags=re.DOTALL)
     text = re.sub(r"<i>(.*?)</i>", f"{Colors.BOLD}{Colors.RED}\1{Colors.RESET}", text, flags=re.DOTALL)
     text = re.sub(r"<c>(.*?)</c>", f"{Colors.BOLD}{Colors.CYAN}\1{Colors.RESET}", text, flags=re.DOTALL)
@@ -105,7 +100,7 @@ def read_note(index):
     dt = datetime.fromisoformat(note_data["timestamp"])
     formatted_date = dt.strftime("%Y-%m-%d %I:%M %p")
 
-    eprint(f"\n{Colors.BOLD}{Colors.GREEN}--- Viewing Note ---{Colors.RESET}")
+    eprint(f"\n{Colors.BOLD}{Colors.GREEN}--- Viewing Note #{index + 1} ---{Colors.RESET}")
     eprint(f"{Colors.CYAN}{formatted_date}{Colors.RESET} - {Colors.BOLD}{title}{Colors.RESET}")
     eprint("---")
     eprint(apply_terminal_styling(body))
@@ -125,7 +120,7 @@ def interactive_view():
         eprint(f"{Colors.YELLOW}{i + 1}:{Colors.RESET} {Colors.CYAN}{formatted_date}{Colors.RESET} - {title}")
 
     while True:
-        eprint(f"\n{Colors.BOLD}Actions: (r)ead, (e)dit, (d)elete, (q)uit{Colors.RESET}")
+        eprint(f"\n{Colors.BOLD}Commands: <number> (read), <number>e (edit), <number>d (delete), quit{Colors.RESET}")
         try:
             eprint("Enter command: ", end="")
             choice = input().lower().strip()
@@ -133,23 +128,28 @@ def interactive_view():
             eprint("\nExiting.")
             break
 
-        if choice == 'q' or choice == '/quit': break
+        if choice == 'quit' or choice == '/quit': break
 
-        action, target_num_str = (None, None)
-        if choice.isdigit(): action, target_num_str = "EDIT", choice
-        elif choice.startswith('d') and choice[1:].isdigit(): action, target_num_str = "DELETE", choice[1:]
-        elif choice.startswith('r') and choice[1:].isdigit(): action, target_num_str = "READ", choice[1:]
-        
-        if action and target_num_str:
+        action, num_str = (None, None)
+        match_edit = re.match(r'^(\d+)e$', choice)
+        match_delete = re.match(r'^(\d+)d$', choice)
+        match_read = re.match(r'^(\d+)$' , choice)
+
+        if match_edit:
+            action, num_str = "EDIT", match_edit.group(1)
+        elif match_delete:
+            action, num_str = "DELETE", match_delete.group(1)
+        elif match_read:
+            action, num_str = "READ", match_read.group(1)
+
+        if action and num_str:
             try:
-                num = int(target_num_str)
+                num = int(num_str)
                 if 1 <= num <= len(all_notes):
                     if action == "READ":
                         read_note(num - 1)
-                        # After reading, just continue the loop to show the menu again
                         continue
                     else:
-                        # For Edit/Delete, we exit and let the shell script handle it
                         print(f"ACTION:{action}:{num - 1}")
                         sys.exit(0)
                 else:
