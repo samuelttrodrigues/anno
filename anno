@@ -1,0 +1,103 @@
+#!/bin/bash
+
+# --- Configuration ---
+ANNOTATIONS_FILE="${HOME}/.local/share/annotations.json"
+VIEWER_ORIGINAL_SCRIPT="/home/sam/Projects/Annotation/anno_app/anno_viewer.py"
+VIEWER_TERMINAL_SCRIPT="/home/sam/Projects/Annotation/anno_app/anno_terminal_viewer.py"
+
+# --- Functions ---
+
+ensure_annotations_file_exists() {
+    mkdir -p "$(dirname "${ANNOTATIONS_FILE}")"
+    if [ ! -f "${ANNOTATIONS_FILE}" ]; then
+        echo "[]" > "${ANNOTATIONS_FILE}"
+    fi
+}
+
+add_annotation() {
+    if ! command -v jq &> /dev/null; then echo "Error: 'jq' is not installed."; exit 1; fi
+    TMP_FILE=$(mktemp)
+    nano "${TMP_FILE}" < /dev/tty > /dev/tty
+    if [ -s "${TMP_FILE}" ]; then
+        CONTENT=$(<"${TMP_FILE}")
+        TIMESTAMP=$(date --iso-8601=seconds)
+        jq --arg ts "${TIMESTAMP}" --arg content "${CONTENT}" '. += [{timestamp: $ts, content: $content}]' "${ANNOTATIONS_FILE}" > "${ANNOTATIONS_FILE}.tmp" && mv "${ANNOTATIONS_FILE}.tmp" "${ANNOTATIONS_FILE}"
+        echo "Annotation saved."
+    else
+        echo "Annotation canceled."
+    fi
+    rm "${TMP_FILE}"
+}
+
+edit_annotation() {
+    local index=$1
+    if ! command -v jq &> /dev/null; then echo "Error: 'jq' is not installed."; exit 1; fi
+    
+    jq 'sort_by(.timestamp) | reverse' "${ANNOTATIONS_FILE}" > "${ANNOTATIONS_FILE}.tmp" && mv "${ANNOTATIONS_FILE}.tmp" "${ANNOTATIONS_FILE}"
+
+    current_content=$(jq -r --argjson index "$index" '.[$index].content' "${ANNOTATIONS_FILE}")
+    TMP_FILE=$(mktemp)
+    echo -n "${current_content}" > "${TMP_FILE}"
+    
+    nano "${TMP_FILE}" < /dev/tty > /dev/tty
+    
+    NEW_CONTENT=$(<"${TMP_FILE}")
+    if [[ "$NEW_CONTENT" != "$current_content" ]]; then
+        jq --argjson index "$index" --arg content "$NEW_CONTENT" '.[$index].content = $content' "${ANNOTATIONS_FILE}" > "${ANNOTATIONS_FILE}.tmp" && mv "${ANNOTATIONS_FILE}.tmp" "${ANNOTATIONS_FILE}"
+        echo "Annotation updated."
+    else
+        echo "Edit canceled. No changes made."
+    fi
+    rm "${TMP_FILE}"
+}
+
+delete_annotation() {
+    local index=$1
+    if ! command -v jq &> /dev/null; then echo "Error: 'jq' is not installed."; exit 1; fi
+
+    jq 'sort_by(.timestamp) | reverse' "${ANNOTATIONS_FILE}" > "${ANNOTATIONS_FILE}.tmp" && mv "${ANNOTATIONS_FILE}.tmp" "${ANNOTATIONS_FILE}"
+
+    jq --argjson index "$index" 'del(.[$index])' "${ANNOTATIONS_FILE}" > "${ANNOTATIONS_FILE}.tmp" && mv "${ANNOTATIONS_FILE}.tmp" "${ANNOTATIONS_FILE}"
+    echo "Annotation deleted."
+}
+
+# --- Main Logic ---
+
+ensure_annotations_file_exists
+
+case "$1" in
+    -o)
+        python3 "${VIEWER_ORIGINAL_SCRIPT}"
+        ;;
+    -t)
+        while true; do
+            ACTION_FILE=$(mktemp)
+
+            python3 "${VIEWER_TERMINAL_SCRIPT}" > "${ACTION_FILE}" 2>/dev/tty
+
+            if [ -s "${ACTION_FILE}" ]; then
+                ACTION_LINE=$(<"${ACTION_FILE}")
+                if [[ $ACTION_LINE == ACTION:* ]]; then
+                    IFS=':' read -r _ action index <<< "$ACTION_LINE"
+                    
+                    if [ "$action" == "EDIT" ]; then
+                        edit_annotation "$index"
+                    elif [ "$action" == "DELETE" ]; then
+                        delete_annotation "$index"
+                    fi
+                else
+                    # If the file is not empty but doesn't match, something is wrong.
+                    # We break to be safe.
+                    break
+                fi
+            else
+                # If the action file is empty, it means the user quit the viewer.
+                break
+            fi
+            rm "${ACTION_FILE}"
+        done
+        ;;
+    *)
+        add_annotation
+        ;;
+esac

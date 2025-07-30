@@ -1,0 +1,14 @@
+#!/bin/bash
+
+set -e
+
+# Make the main anno script executable
+chmod +x /usr/local/bin/anno
+
+# Ensure the config directory exists for settings
+mkdir -p /home/sam/.config/anno
+
+# Ensure the data directory exists for annotations
+mkdir -p /home/sam/.local/share
+
+exit 0

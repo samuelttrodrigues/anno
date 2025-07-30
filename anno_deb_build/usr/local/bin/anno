@@ -1,0 +1,72 @@
+#!/bin/bash
+
+# --- Configuration ---
+ANNOTATIONS_FILE="${HOME}/.local/share/annotations.json"
+VIEWER_ORIGINAL_SCRIPT="/home/sam/Projects/Annotation/anno_app/anno_viewer.py"
+VIEWER_TERMINAL_SCRIPT="/home/sam/Projects/Annotation/anno_app/anno_terminal_viewer.py"
+
+# --- Functions ---
+
+# Function to create the annotations file and directory if they don't exist
+ensure_annotations_file_exists() {
+    mkdir -p "$(dirname "${ANNOTATIONS_FILE}")"
+    if [ ! -f "${ANNOTATIONS_FILE}" ]; then
+        echo "[]" > "${ANNOTATIONS_FILE}"
+    fi
+}
+
+# Function to add a new annotation
+add_annotation() {
+    # Check for jq dependency first
+    if ! command -v jq &> /dev/null; then
+        echo "Error: 'jq' is not installed. Please install it to continue."
+        echo "On Debian/Ubuntu: sudo apt-get install jq"
+        exit 1
+    fi
+
+    # Create a temporary file for the note
+    TMP_FILE=$(mktemp)
+
+    # Open nano to write the annotation
+    nano "${TMP_FILE}"
+
+    # Check if the user actually wrote something
+    if [ -s "${TMP_FILE}" ]; then
+        CONTENT=$(<"${TMP_FILE}")
+        TIMESTAMP=$(date --iso-8601=seconds)
+
+        # Use jq to safely add the new entry to the JSON array
+        if jq --arg ts "${TIMESTAMP}" --arg content "${CONTENT}" '. += [{timestamp: $ts, content: $content}]' "${ANNOTATIONS_FILE}" > "${ANNOTATIONS_FILE}.tmp"; then
+            mv "${ANNOTATIONS_FILE}.tmp" "${ANNOTATIONS_FILE}"
+            echo "Annotation saved."
+        else
+            echo "Error: Failed to save annotation. Your note content is still in ${TMP_FILE}"
+            # No rm "${TMP_FILE}" here, so the user can recover the note
+            exit 1
+        fi
+    else
+        echo "Annotation canceled."
+    fi
+
+    # Clean up the temporary file
+    rm "${TMP_FILE}"
+}
+
+# Function to open the viewer
+open_viewer() {
+    local viewer_script="$1"
+    python3 "${viewer_script}"
+}
+
+# --- Main Logic ---
+
+ensure_annotations_file_exists
+
+# Check for flags
+if [ "$1" == "-o" ]; then
+    open_viewer "${VIEWER_ORIGINAL_SCRIPT}"
+elif [ "$1" == "-t" ]; then
+    open_viewer "${VIEWER_TERMINAL_SCRIPT}"
+else
+    add_annotation
+fi
