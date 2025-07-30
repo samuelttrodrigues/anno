@@ -1,4 +1,3 @@
-
 import tkinter as tk
 from tkinter import ttk, font, messagebox
 import json
@@ -19,32 +18,38 @@ THEMES = {
     "Pastel": {
         "bg": "#B2D8B2", "card": "#F5F5DC", "text_fg": "#3D2B1F",
         "select_bg": "#A0522D", "select_fg": "#FFFFFF",
-        "highlight": "#FFFACD", "important": "#FF4500", "code_bg": "#D3D3D3"
+        "highlight": "#FFFACD", "important": "#FF4500", "code_bg": "#D3D3D3",
+        "checklist_done": "#228B22", "checklist_pending": "#DC143C"
     },
     "Dark": {
         "bg": "#2E2E2E", "card": "#3C3C3C", "text_fg": "#E0E0E0",
         "select_bg": "#BB86FC", "select_fg": "#000000",
-        "highlight": "#4A4A4A", "important": "#CF6679", "code_bg": "#555555"
+        "highlight": "#4A4A4A", "important": "#CF6679", "code_bg": "#555555",
+        "checklist_done": "#03DAC6", "checklist_pending": "#CF6679"
     },
     "Light": {
         "bg": "#F0F0F0", "card": "#FFFFFF", "text_fg": "#000000",
         "select_bg": "#0078D7", "select_fg": "#FFFFFF",
-        "highlight": "#FFFF00", "important": "#D93025", "code_bg": "#E8EAED"
+        "highlight": "#FFFF00", "important": "#D93025", "code_bg": "#E8EAED",
+        "checklist_done": "#137333", "checklist_pending": "#A50E0E"
     },
     "Nord": {
         "bg": "#2E3440", "card": "#3B4252", "text_fg": "#D8DEE9",
         "select_bg": "#88C0D0", "select_fg": "#2E3440",
-        "highlight": "#5E81AC", "important": "#BF616A", "code_bg": "#4C566A"
+        "highlight": "#5E81AC", "important": "#BF616A", "code_bg": "#4C566A",
+        "checklist_done": "#A3BE8C", "checklist_pending": "#BF616A"
     },
     "Solarized Light": {
         "bg": "#fdf6e3", "card": "#eee8d5", "text_fg": "#657b83",
         "select_bg": "#268bd2", "select_fg": "#ffffff",
-        "highlight": "#b58900", "important": "#dc322f", "code_bg": "#f5f5f5"
+        "highlight": "#b58900", "important": "#dc322f", "code_bg": "#f5f5f5",
+        "checklist_done": "#859900", "checklist_pending": "#dc322f"
     },
     "Gruvbox": {
         "bg": "#282828", "card": "#3c3836", "text_fg": "#ebdbb2",
         "select_bg": "#fe8019", "select_fg": "#282828",
-        "highlight": "#fabd2f", "important": "#fb4934", "code_bg": "#504945"
+        "highlight": "#fabd2f", "important": "#fb4934", "code_bg": "#504945",
+        "checklist_done": "#b8bb26", "checklist_pending": "#fb4934"
     }
 }
 
@@ -86,6 +91,7 @@ class AnnotationViewer(tk.Tk):
         self.text_font = font.Font(family=FONT_NAME, size=12)
         self.tree_font = font.Font(family=FONT_NAME, size=11)
         self.mono_font = font.Font(family=MONO_FONT_NAME, size=11)
+        self.list_font = font.Font(family=FONT_NAME, size=12, weight="bold")
         self.style = ttk.Style(self)
         self.style.theme_use("clam")
 
@@ -155,7 +161,7 @@ class AnnotationViewer(tk.Tk):
         self.text_area.grid(row=1, column=0, sticky="nsew")
         self.text_area.config(state=tk.DISABLED)
 
-        self.style_bar = ttk.Label(content_card, text="Use <h>highlight</h>, <i>important</i>, <c>code</c>", anchor="center", style="Card.TLabel")
+        self.style_bar = ttk.Label(content_card, text="Use <h>highlight</h>, <i>important</i>, <c>code</c>, [ ] checklist, * list", anchor="center", style="Card.TLabel")
         self.paned_window.add(content_card, weight=3)
 
         self.tree.bind("<<TreeviewSelect>>", self.on_tree_select)
@@ -173,15 +179,21 @@ class AnnotationViewer(tk.Tk):
         self.style.configure("Card.Treeview", background=theme["card"], foreground=theme["text_fg"], fieldbackground=theme["card"], font=self.tree_font, borderwidth=0, rowheight=self.tree_font.metrics("linespace") + 8)
         self.style.map("Card.Treeview", background=[("selected", theme["select_bg"])], foreground=[("selected", theme["select_fg"])])
         self.text_area.configure(bg=theme["card"], fg=theme["text_fg"], insertbackground=theme["text_fg"])
+        
+        # Base tags
         self.text_area.tag_configure("highlight", background=theme["highlight"])
         self.text_area.tag_configure("important", foreground=theme["important"], font=(FONT_NAME, 12, "bold"))
         self.text_area.tag_configure("code", background=theme["code_bg"], font=self.mono_font)
         self.text_area.tag_configure("hidden", elide=True)
+        
+        # Formatting tags
+        self.text_area.tag_configure("checklist_done", foreground=theme["checklist_done"], font=self.list_font)
+        self.text_area.tag_configure("checklist_pending", foreground=theme["checklist_pending"], font=self.list_font)
+        self.text_area.tag_configure("list_bullet", foreground=theme.get("text_fg", "#000000"), font=self.list_font)
 
     def parse_note_content(self, content):
         lines = content.split('\n', 2)
         title = lines[0] if lines else "Untitled"
-        
         tags = []
         body_start_index = 1
         if len(lines) > 1:
@@ -190,7 +202,6 @@ class AnnotationViewer(tk.Tk):
                 tags_str = tags_match.group(1)
                 tags = [tag.strip().lstrip('#') for tag in tags_str.split(',') if tag.strip()]
                 body_start_index = 2
-
         body = '\n'.join(lines[body_start_index:]) if len(lines) > body_start_index else ''
         return title, tags, body
 
@@ -253,9 +264,8 @@ class AnnotationViewer(tk.Tk):
         self.delete_button.config(state=tk.NORMAL)
         self.display_note()
 
-    def on_double_click(self, event):
-        if self.tree.selection():
-            self.enter_edit_mode()
+    def on_double_click(self, event): 
+        if self.tree.selection(): self.enter_edit_mode()
 
     def display_note(self):
         if self.current_note_id is None: return
@@ -278,7 +288,11 @@ class AnnotationViewer(tk.Tk):
 
     def apply_styling(self):
         content = self.text_area.get("1.0", tk.END)
-        for tag in ["highlight", "important", "code", "hidden"]: self.text_area.tag_remove(tag, "1.0", tk.END)
+        # Clear all existing tags first
+        for tag in self.text_area.tag_names():
+            self.text_area.tag_remove(tag, "1.0", tk.END)
+
+        # Apply base styling tags
         for tag, pattern in [("h", "highlight"), ("i", "important"), ("c", "code")]:
             for match in re.finditer(f"<{tag}>(.*?)</{tag}>", content, re.DOTALL):
                 start_tag, end_tag = match.span(0)
@@ -286,6 +300,18 @@ class AnnotationViewer(tk.Tk):
                 self.text_area.tag_add(pattern, f"1.0+{start_content}c", f"1.0+{end_content}c")
                 self.text_area.tag_add("hidden", f"1.0+{start_tag}c", f"1.0+{start_content}c")
                 self.text_area.tag_add("hidden", f"1.0+{end_content}c", f"1.0+{end_tag}c")
+        
+        # Apply new formatting line by line
+        for i, line in enumerate(content.split('\n')):
+            line_num = i + 1
+            # Checklists
+            if re.match(r'^\s*\[x\].*$', line):
+                self.text_area.tag_add("checklist_done", f"{line_num}.0", f"{line_num}.end")
+            elif re.match(r'^\s*\[ \].*$', line):
+                self.text_area.tag_add("checklist_pending", f"{line_num}.0", f"{line_num}.end")
+            # Lists
+            elif re.match(r'^\s*[\*\-].*$', line) or re.match(r'^\s*\d+\..*$', line):
+                self.text_area.tag_add("list_bullet", f"{line_num}.0", f"{line_num}.end")
 
     def enter_edit_mode(self):
         if self.current_note_id is None: return
@@ -295,7 +321,7 @@ class AnnotationViewer(tk.Tk):
         self.cancel_button.pack(side=tk.LEFT)
         self.style_bar.grid(row=2, column=0, sticky="ew", pady=(5, 0))
         self.text_area.config(state=tk.NORMAL)
-        for tag in ["highlight", "important", "code", "hidden"]: self.text_area.tag_remove(tag, "1.0", tk.END)
+        for tag in self.text_area.tag_names(): self.text_area.tag_remove(tag, "1.0", tk.END)
 
     def exit_edit_mode(self, cancel=False):
         self.save_button.pack_forget()
@@ -358,8 +384,7 @@ class AnnotationViewer(tk.Tk):
             self.populate_tree(self.all_notes)
             return
         
-        if search_term.startswith('#'):
-            search_term = search_term[1:]
+        if search_term.startswith('#'): search_term = search_term[1:]
 
         filtered_notes = [
             note for note in self.all_notes 

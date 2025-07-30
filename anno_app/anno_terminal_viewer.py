@@ -1,3 +1,5 @@
+
+
 import json
 import os
 import sys
@@ -38,13 +40,16 @@ def parse_note_content(content):
     return title, tags, body
 
 def apply_terminal_styling(text):
+    # Use a function for substitution to avoid issues with backslashes
+    def replace_checklist_done(m): return f"{Colors.GREEN}✔{Colors.RESET}{m.group(1)}"
+    def replace_checklist_pending(m): return f"{Colors.RED}☐{Colors.RESET}{m.group(1)}"
+    def replace_list(m): return f"{Colors.YELLOW}•{Colors.RESET}{m.group(1)}"
+
     # Note: Order matters here. More specific tags should come first.
-    # Checklists
-    text = re.sub(r'^\s*\[x\](.*?)$' , f"{Colors.GREEN}✔\1{Colors.RESET}", text, flags=re.MULTILINE)
-    text = re.sub(r'^\s*\[ \](.*?)$' , f"{Colors.RED}☐\1{Colors.RESET}", text, flags=re.MULTILINE)
-    # Lists (must come after checklists)
-    text = re.sub(r'^\s*\*(.*?)$'     , f"{Colors.YELLOW}•\1{Colors.RESET}", text, flags=re.MULTILINE)
-    text = re.sub(r'^\s*\d+\.(.*?)$' , f"{Colors.YELLOW}•\1{Colors.RESET}", text, flags=re.MULTILINE)
+    text = re.sub(r'^\s*\[x\](.*)$' , replace_checklist_done, text, flags=re.MULTILINE)
+    text = re.sub(r'^\s*\[ \](.*)$' , replace_checklist_pending, text, flags=re.MULTILINE)
+    text = re.sub(r'^\s*[\*\-](.*)$'   , replace_list, text, flags=re.MULTILINE)
+    text = re.sub(r'^\s*\d+\.(.*)$' , replace_list, text, flags=re.MULTILINE)
     # Custom tags
     text = re.sub(r"<h>(.*?)</h>", f"{Colors.BG_YELLOW}{Colors.BLACK}\1{Colors.RESET}", text, flags=re.DOTALL)
     text = re.sub(r"<i>(.*?)</i>", f"{Colors.BOLD}{Colors.RED}\1{Colors.RESET}", text, flags=re.DOTALL)
@@ -70,11 +75,9 @@ def get_all_notes():
 
 def search_and_display_notes(search_term):
     all_notes = get_all_notes()
-    if not all_notes:
-        return
+    if not all_notes: return
 
-    if search_term.startswith('#'):
-        search_term = search_term[1:]
+    if search_term.startswith('#'): search_term = search_term[1:]
     search_term = search_term.lower()
 
     found_notes = False
@@ -89,8 +92,24 @@ def search_and_display_notes(search_term):
             eprint(f"{Colors.CYAN}{formatted_date}{Colors.RESET} - {Colors.BOLD}{title}{Colors.RESET}")
             eprint(apply_terminal_styling(body) + "\n---")
     
-    if not found_notes:
-        eprint(f"{Colors.YELLOW}No notes found with the tag '{search_term}'.{Colors.RESET}")
+    if not found_notes: eprint(f"{Colors.YELLOW}No notes found with the tag '{search_term}'.{Colors.RESET}")
+
+def read_note(index):
+    all_notes = get_all_notes()
+    if not 1 <= index + 1 <= len(all_notes):
+        eprint(f"{Colors.RED}Invalid note number.{Colors.RESET}")
+        return
+    
+    note_data = all_notes[index]
+    title, _, body = parse_note_content(note_data.get('content', ''))
+    dt = datetime.fromisoformat(note_data["timestamp"])
+    formatted_date = dt.strftime("%Y-%m-%d %I:%M %p")
+
+    eprint(f"\n{Colors.BOLD}{Colors.GREEN}--- Viewing Note ---{Colors.RESET}")
+    eprint(f"{Colors.CYAN}{formatted_date}{Colors.RESET} - {Colors.BOLD}{title}{Colors.RESET}")
+    eprint("---")
+    eprint(apply_terminal_styling(body))
+    eprint(f"{Colors.BOLD}{Colors.GREEN}--- End of Note ---{Colors.RESET}")
 
 def interactive_view():
     all_notes = get_all_notes()
@@ -106,7 +125,7 @@ def interactive_view():
         eprint(f"{Colors.YELLOW}{i + 1}:{Colors.RESET} {Colors.CYAN}{formatted_date}{Colors.RESET} - {title}")
 
     while True:
-        eprint(f"\n{Colors.BOLD}Enter a note number to edit, 'd<number>' to delete, or '/quit' to exit.{Colors.RESET}")
+        eprint(f"\n{Colors.BOLD}Actions: (r)ead, (e)dit, (d)elete, (q)uit{Colors.RESET}")
         try:
             eprint("Enter command: ", end="")
             choice = input().lower().strip()
@@ -114,21 +133,25 @@ def interactive_view():
             eprint("\nExiting.")
             break
 
-        if choice == '/quit':
-            break
+        if choice == 'q' or choice == '/quit': break
 
         action, target_num_str = (None, None)
-        if choice.isdigit():
-            action, target_num_str = "EDIT", choice
-        elif choice.startswith('d') and choice[1:].isdigit():
-            action, target_num_str = "DELETE", choice[1:]
+        if choice.isdigit(): action, target_num_str = "EDIT", choice
+        elif choice.startswith('d') and choice[1:].isdigit(): action, target_num_str = "DELETE", choice[1:]
+        elif choice.startswith('r') and choice[1:].isdigit(): action, target_num_str = "READ", choice[1:]
         
         if action and target_num_str:
             try:
                 num = int(target_num_str)
                 if 1 <= num <= len(all_notes):
-                    print(f"ACTION:{action}:{num - 1}")
-                    sys.exit(0)
+                    if action == "READ":
+                        read_note(num - 1)
+                        # After reading, just continue the loop to show the menu again
+                        continue
+                    else:
+                        # For Edit/Delete, we exit and let the shell script handle it
+                        print(f"ACTION:{action}:{num - 1}")
+                        sys.exit(0)
                 else:
                     eprint(f"{Colors.RED}Invalid note number: {num}{Colors.RESET}")
             except ValueError:
