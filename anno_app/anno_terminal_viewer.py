@@ -1,3 +1,5 @@
+
+
 import json
 import os
 import sys
@@ -45,7 +47,7 @@ def apply_terminal_styling(text):
     text = re.sub(r'^\s*\[x\](.*)$' , replace_checklist_done, text, flags=re.MULTILINE)
     text = re.sub(r'^\s*\[ \](.*)$' , replace_checklist_pending, text, flags=re.MULTILINE)
     text = re.sub(r'^\s*[\*\-](.*)$'   , replace_list, text, flags=re.MULTILINE)
-    text = re.sub(r'^\s*\d+\.\s*(.*)$' , replace_list, text, flags=re.MULTILINE)
+    text = re.sub(r'^(\s*\d+\.)(.*)$' , replace_list, text, flags=re.MULTILINE)
     text = re.sub(r"<h>(.*?)</h>", f"{Colors.BG_YELLOW}{Colors.BLACK}\1{Colors.RESET}", text, flags=re.DOTALL)
     text = re.sub(r"<i>(.*?)</i>", f"{Colors.BOLD}{Colors.RED}\1{Colors.RESET}", text, flags=re.DOTALL)
     text = re.sub(r"<c>(.*?)</c>", f"{Colors.BOLD}{Colors.CYAN}\1{Colors.RESET}", text, flags=re.DOTALL)
@@ -85,6 +87,8 @@ def search_and_display_notes(search_term):
             dt = datetime.fromisoformat(note_data["timestamp"])
             formatted_date = dt.strftime("%Y-%m-%d %I:%M %p")
             eprint(f"{Colors.CYAN}{formatted_date}{Colors.RESET} - {Colors.BOLD}{title}{Colors.RESET}")
+            if tags:
+                eprint(f"{Colors.YELLOW}Tags: {json.dumps(tags)}{Colors.RESET}")
             eprint(apply_terminal_styling(body) + "\n---")
     
     if not found_notes: eprint(f"{Colors.YELLOW}No notes found with the tag '{search_term}'.{Colors.RESET}")
@@ -96,15 +100,17 @@ def read_note(index):
         return
     
     note_data = all_notes[index]
-    title, _, body = parse_note_content(note_data.get('content', ''))
+    title, tags, body = parse_note_content(note_data.get('content', ''))
     dt = datetime.fromisoformat(note_data["timestamp"])
     formatted_date = dt.strftime("%Y-%m-%d %I:%M %p")
 
     eprint(f"\n{Colors.BOLD}{Colors.GREEN}--- Viewing Note #{index + 1} ---{Colors.RESET}")
     eprint(f"{Colors.CYAN}{formatted_date}{Colors.RESET} - {Colors.BOLD}{title}{Colors.RESET}")
+    if tags:
+        eprint(f"{Colors.YELLOW}Tags: {json.dumps(tags)}{Colors.RESET}")
     eprint("---")
     eprint(apply_terminal_styling(body))
-    eprint(f"{Colors.BOLD}{Colors.GREEN}--- End of Note ---{Colors.RESET}")
+    eprint(f"\n{Colors.BOLD}{Colors.GREEN}--- End of Note ---{Colors.RESET}")
 
 def interactive_view():
     all_notes = get_all_notes()
@@ -120,7 +126,7 @@ def interactive_view():
         eprint(f"{Colors.YELLOW}{i + 1}:{Colors.RESET} {Colors.CYAN}{formatted_date}{Colors.RESET} - {title}")
 
     while True:
-        eprint(f"\n{Colors.BOLD}Commands: <number> (read), <number>e (edit), <number>d (delete), quit{Colors.RESET}")
+        eprint(f"\n{Colors.BOLD}Commands: Enter number to READ || Enter number + e to EDIT || Enter num. + d to DELETE || Type /quit to QUIT.{Colors.RESET}")
         try:
             eprint("Enter command: ", end="")
             choice = input().lower().strip()

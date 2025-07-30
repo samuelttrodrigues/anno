@@ -180,13 +180,11 @@ class AnnotationViewer(tk.Tk):
         self.style.map("Card.Treeview", background=[("selected", theme["select_bg"])], foreground=[("selected", theme["select_fg"])])
         self.text_area.configure(bg=theme["card"], fg=theme["text_fg"], insertbackground=theme["text_fg"])
         
-        # Base tags
         self.text_area.tag_configure("highlight", background=theme["highlight"])
         self.text_area.tag_configure("important", foreground=theme["important"], font=(FONT_NAME, 12, "bold"))
         self.text_area.tag_configure("code", background=theme["code_bg"], font=self.mono_font)
         self.text_area.tag_configure("hidden", elide=True)
         
-        # Formatting tags
         self.text_area.tag_configure("checklist_done", foreground=theme["checklist_done"], font=self.list_font)
         self.text_area.tag_configure("checklist_pending", foreground=theme["checklist_pending"], font=self.list_font)
         self.text_area.tag_configure("list_bullet", foreground=theme.get("text_fg", "#000000"), font=self.list_font)
@@ -264,7 +262,7 @@ class AnnotationViewer(tk.Tk):
         self.delete_button.config(state=tk.NORMAL)
         self.display_note()
 
-    def on_double_click(self, event): 
+    def on_double_click(self, event):
         if self.tree.selection(): self.enter_edit_mode()
 
     def display_note(self):
@@ -288,11 +286,8 @@ class AnnotationViewer(tk.Tk):
 
     def apply_styling(self):
         content = self.text_area.get("1.0", tk.END)
-        # Clear all existing tags first
-        for tag in self.text_area.tag_names():
-            self.text_area.tag_remove(tag, "1.0", tk.END)
+        for tag in self.text_area.tag_names(): self.text_area.tag_remove(tag, "1.0", tk.END)
 
-        # Apply base styling tags
         for tag, pattern in [("h", "highlight"), ("i", "important"), ("c", "code")]:
             for match in re.finditer(f"<{tag}>(.*?)</{tag}>", content, re.DOTALL):
                 start_tag, end_tag = match.span(0)
@@ -301,16 +296,13 @@ class AnnotationViewer(tk.Tk):
                 self.text_area.tag_add("hidden", f"1.0+{start_tag}c", f"1.0+{start_content}c")
                 self.text_area.tag_add("hidden", f"1.0+{end_content}c", f"1.0+{end_tag}c")
         
-        # Apply new formatting line by line
         for i, line in enumerate(content.split('\n')):
             line_num = i + 1
-            # Checklists
-            if re.match(r'^\s*\[x\].*$', line):
+            if re.match(r'^\s*\[x\]\s*.*$', line):
                 self.text_area.tag_add("checklist_done", f"{line_num}.0", f"{line_num}.end")
-            elif re.match(r'^\s*\[ \].*$', line):
+            elif re.match(r'^\s*\[ \]\s*.*$', line):
                 self.text_area.tag_add("checklist_pending", f"{line_num}.0", f"{line_num}.end")
-            # Lists
-            elif re.match(r'^\s*[\*\-].*$', line) or re.match(r'^\s*\d+\..*$', line):
+            elif re.match(r'^\s*([\*\-]|\d+\.)\s+.*$', line):
                 self.text_area.tag_add("list_bullet", f"{line_num}.0", f"{line_num}.end")
 
     def enter_edit_mode(self):
