@@ -3,20 +3,35 @@
 # Anno - A simple annotation script
 
 # --- Configuration ---
-# The directory where this script is located
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Set the python path to include the script directory
-export PYTHONPATH="$SCRIPT_DIR"
+# Determine the absolute path of the script itself
+# This works whether the script is called directly, via a symlink, or from the PATH
+SOURCE="${BASH_SOURCE[0]}"
+while [ -h "$SOURCE" ]; do # resolve $SOURCE until the file is no longer a symlink
+  DIR="$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )"
+  SOURCE="$(readlink "$SOURCE")"
+  [[ $SOURCE != /* ]] && SOURCE="$DIR/$SOURCE" # if $SOURCE was a relative symlink, we need to resolve it relative to the path where the symlink file was located
+done
+SCRIPT_DIR="$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )"
+
+# The location where the Python application files are stored.
+# By default, it's in a subdirectory of the script's location.
+# This can be overridden by setting the ANNO_APP_DIR environment variable.
+APP_DIR_DEFAULT="$SCRIPT_DIR/anno_app"
+# If installed system-wide, the app files might be in /usr/share/anno_app
+if [ -d "/usr/share/anno_app" ]; then
+    APP_DIR_DEFAULT="/usr/share/anno_app"
+fi
+ANNO_APP_DIR="${ANNO_APP_DIR:-$APP_DIR_DEFAULT}"
+
+# Set the python path to include the parent directory of the app, so imports work
+export PYTHONPATH="$(dirname "$ANNO_APP_DIR")"
 
 # The main application to run (Python GUI)
-APP_TO_RUN="$SCRIPT_DIR/anno_app/anno_viewer.py"
+APP_TO_RUN="$ANNO_APP_DIR/anno_viewer.py"
 
 # The terminal viewer application
-TERMINAL_VIEWER="$SCRIPT_DIR/anno_app/anno_terminal_viewer.py"
-
-# The utility script for backups/exports
-UTILS_SCRIPT="$SCRIPT_DIR/anno_app/anno_utils.py"
+TERMINAL_VIEWER="$ANNO_APP_DIR/anno_terminal_viewer.py"
 
 # The file where annotations are stored
 ANNOTATIONS_FILE="$HOME/.local/share/annotations.json"
