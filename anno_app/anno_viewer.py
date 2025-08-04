@@ -199,7 +199,7 @@ class AnnotationViewer(tk.Tk):
         self.style.configure("Card.TFrame", background=theme["card"])
         self.style.configure("Card.TLabel", background=theme["card"], foreground=theme["text_fg"])
         self.style.configure("Card.Treeview", background=theme["card"], foreground=theme["text_fg"], fieldbackground=theme["card"], font=self.tree_font, borderwidth=0, rowheight=self.tree_font.metrics("linespace") + 8)
-        self.style.map("Card.Treeview", background=[("selected", theme["select_bg"])], foreground=[("selected", theme["select_fg"])])
+        self.style.map("Card.Treeview", background=[("selected", theme["select_bg"] )], foreground=[("selected", theme["select_fg"] )])
         self.text_area.configure(bg=theme["card"], fg=theme["text_fg"], insertbackground=theme["text_fg"])
         
         self.text_area.tag_configure("highlight", background=theme["highlight"])
@@ -284,7 +284,8 @@ class AnnotationViewer(tk.Tk):
         self.delete_button.config(state=tk.NORMAL)
         self.display_note()
 
-    def on_double_click(self, event):n        if self.tree.selection(): self.enter_edit_mode()
+    def on_double_click(self, event):
+        if self.tree.selection(): self.enter_edit_mode()
 
     def display_note(self):
         if self.current_note_id is None: return
@@ -323,8 +324,7 @@ class AnnotationViewer(tk.Tk):
                 self.text_area.tag_add("checklist_done", f"{line_num}.0", f"{line_num}.end")
             elif re.match(r'^\s*\[ \].*$', line):
                 self.text_area.tag_add("checklist_pending", f"{line_num}.0", f"{line_num}.end")
-            elif re.match(r'^\s*([\*\-]|
-+\.)\s+.*$', line):
+            elif re.match(r'^\s*([\*\-]|1+)\s+.*$', line):
                 self.text_area.tag_add("list_bullet", f"{line_num}.0", f"{line_num}.end")
 
     def enter_edit_mode(self):
