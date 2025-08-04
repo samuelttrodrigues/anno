@@ -1,105 +1,112 @@
 #!/bin/bash
 
 # Anno - A simple annotation script
+# This script is the main entry point for the Anno application.
+# It handles command-line arguments, creates new notes, and launches the
+# Python-based GUI or terminal UI.
 
 # --- Configuration ---
 
-# Determine the absolute path of the script itself
-# This works whether the script is called directly, via a symlink, or from the PATH
+# Determine the absolute path of the script itself.
+# This is crucial for locating the application files, whether the script is run
+# from the project directory or as a system-wide command.
 SOURCE="${BASH_SOURCE[0]}"
 while [ -h "$SOURCE" ]; do # resolve $SOURCE until the file is no longer a symlink
   DIR="$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )"
   SOURCE="$(readlink "$SOURCE")"
-  [[ $SOURCE != /* ]] && SOURCE="$DIR/$SOURCE" # if $SOURCE was a relative symlink, we need to resolve it relative to the path where the symlink file was located
+  [[ $SOURCE != /* ]] && SOURCE="$DIR/$SOURCE" # if $SOURCE was a relative symlink, resolve it relative to the symlink file
 done
 SCRIPT_DIR="$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )"
 
+# --- Path Setup ---
+
 # The location where the Python application files are stored.
-# By default, it's in a subdirectory of the script's location.
-# This can be overridden by setting the ANNO_APP_DIR environment variable.
-APP_DIR_DEFAULT="$SCRIPT_DIR/anno_app"
-# If installed system-wide, the app files might be in /usr/share/anno_app
-if [ -d "/usr/share/anno_app" ]; then
-    APP_DIR_DEFAULT="/usr/share/anno_app"
+# This checks for a local development copy first, then a system-wide installation.
+APP_DIR_LOCAL="$SCRIPT_DIR/anno_app"
+APP_DIR_SYSTEM="/usr/share/anno_app"
+
+if [ -d "$APP_DIR_LOCAL" ]; then
+    ANNO_APP_DIR="$APP_DIR_LOCAL"
+    # Use the project root for the python path in a local setup
+    export PYTHONPATH="$SCRIPT_DIR"
+elif [ -d "$APP_DIR_SYSTEM" ]; then
+    ANNO_APP_DIR="$APP_DIR_SYSTEM"
+    # Use the parent of the system app dir for the python path
+    export PYTHONPATH="$(dirname "$ANNO_APP_DIR")"
+else
+    echo "Error: Cannot find the anno_app directory."
+    exit 1
 fi
-ANNO_APP_DIR="${ANNO_APP_DIR:-$APP_DIR_DEFAULT}"
 
-# Set the python path to include the parent directory of the app, so imports work
-export PYTHONPATH="$(dirname "$ANNO_APP_DIR")"
-
-# The main application to run (Python GUI)
+# Define full paths to the Python applications.
 APP_TO_RUN="$ANNO_APP_DIR/anno_viewer.py"
-
-# The terminal viewer application
 TERMINAL_VIEWER="$ANNO_APP_DIR/anno_terminal_viewer.py"
 
-# The file where annotations are stored
+# The file where all notes are stored in JSON format.
 ANNOTATIONS_FILE="$HOME/.local/share/annotations.json"
 
-# Temporary file for editor content
+# A temporary file for creating and editing notes in a text editor.
 TMP_FILE=$(mktemp)
 
 # --- Functions ---
 
-# Function to create a new annotation
+# Handles the creation of a new note.
 create_new_note() {
-    # Pre-populate the temp file with the template
+    # Pre-populate the temp file with a helpful template.
     echo -e "New Annotation Title\n[#tag1, #tag2]\n\n" > "$TMP_FILE"
     
-    # Open the temp file in the default editor
+    # Open the temp file in the user's default text editor.
+    
     ${EDITOR:-nano} "$TMP_FILE"
     
-    # Check if the file content is still the default template
+    # If the user quits without changing the template, cancel the operation.
     if grep -q "New Annotation Title" "$TMP_FILE" && grep -q "[#tag1, #tag2]" "$TMP_FILE"; then
         echo "Annotation canceled. No changes made."
         rm "$TMP_FILE"
         return
     fi
 
-    # Read the content from the editor
     local content
     content=$(<"$TMP_FILE")
     rm "$TMP_FILE"
 
-    # Ensure the annotations file exists and is a valid JSON array
+    # Ensure the annotations file exists and is a valid JSON array.
     if [ ! -f "$ANNOTATIONS_FILE" ]; then
         mkdir -p "$(dirname "$ANNOTATIONS_FILE")"
         echo "[]" > "$ANNOTATIONS_FILE"
     fi
 
-    # Create a JSON object for the new note
+    # Use jq to safely add the new note to the JSON array.
     local timestamp
     timestamp=$(date -u +"%Y-%m-%dT%H:%M:%S.%6NZ")
     local new_note
     new_note=$(jq -n --arg content "$content" --arg timestamp "$timestamp" '{content: $content, timestamp: $timestamp}')
 
-    # Add the new note to the JSON array
     jq --argjson new_note "$new_note" '. + [$new_note]' "$ANNOTATIONS_FILE" > "${ANNOTATIONS_FILE}.tmp" && mv "${ANNOTATIONS_FILE}.tmp" "$ANNOTATIONS_FILE"
     echo "Annotation saved."
 }
 
-# Function to handle the interactive terminal viewer
+# Manages the interactive terminal session.
 run_terminal_viewer() {
     local communication_file
     communication_file=$(mktemp)
 
+    # This loop allows the Python script to hand control back to the shell
+    # for actions like editing or deleting, then relaunch.
     while true; do
-        # Run the Python script and capture its output to the communication file
+        # The Python script prints commands (e.g., "ACTION:EDIT:1") to stdout.
         python3 "$TERMINAL_VIEWER" > "$communication_file"
         
-        # Check if the file has content
         if [ -s "$communication_file" ]; then
             local command
             command=$(<"$communication_file")
             rm "$communication_file"
 
-            # Parse the command: ACTION:INDEX
             local action
             action=$(echo "$command" | cut -d':' -f2)
             local index
             index=$(echo "$command" | cut -d':' -f3)
 
-            # Get the current notes
             local notes
             notes=$(jq '.' "$ANNOTATIONS_FILE")
             local note_to_process
@@ -109,27 +116,25 @@ run_terminal_viewer() {
                 local content
                 content=$(echo "$note_to_process" | jq -r '.content')
                 echo "$content" > "$TMP_FILE"
+                
                 ${EDITOR:-nano} "$TMP_FILE"
                 local new_content
                 new_content=$(<"$TMP_FILE")
                 rm "$TMP_FILE"
 
-                # Update the note in the main JSON file
                 local updated_notes
                 updated_notes=$(echo "$notes" | jq --argjson i "$index" --arg new_content "$new_content" '.[$i].content = $new_content')
                 echo "$updated_notes" > "$ANNOTATIONS_FILE"
                 echo "Note updated."
-                # Loop continues
 
             elif [ "$action" == "DELETE" ]; then
                 local updated_notes
                 updated_notes=$(echo "$notes" | jq --argjson i "$index" 'del(.[$i])')
                 echo "$updated_notes" > "$ANNOTATIONS_FILE"
                 echo "Note deleted."
-                # Loop continues
             fi
         else
-            # If the python script exits without writing a command, break the loop
+            # If the python script exits without a command, break the loop.
             rm "$communication_file"
             break
         fi
@@ -138,48 +143,41 @@ run_terminal_viewer() {
 
 # --- Main Script Logic ---
 
-# No arguments: Create a new note
+# If no arguments are provided, create a new note.
 if [ $# -eq 0 ]; then
     create_new_note
     exit 0
 fi
 
-# Argument parsing
+# Parse command-line arguments.
 case "$1" in
     -o|--open)
         python3 "$APP_TO_RUN"
-        ;;
+        ;; 
     -t|--terminal)
         run_terminal_viewer
-        ;;
+        ;; 
     -s|--search)
-        if [ -z "$2" ]; then
-            echo "Error: Search term required for -s option."
-            exit 1
-        fi
+        if [ -z "$2" ]; then echo "Error: Search term required." >&2; exit 1; fi
         python3 "$TERMINAL_VIEWER" --search "$2"
-        ;;
+        ;; 
     --export)
-        if [ -z "$2" ]; then
-            echo "Error: Export directory required for --export option."
-            exit 1
-        fi
+        if [ -z "$2" ]; then echo "Error: Export directory required." >&2; exit 1; fi
         python3 -c "from anno_app.anno_utils import export_notes; export_notes('$2')"
-        ;;
+        ;; 
     --backup)
         python3 -c "from anno_app.anno_utils import backup_notes; backup_notes()"
-        ;;
+        ;; 
     --restore)
-        # This will be an interactive restore process handled by a dedicated python script call
-        python3 -c "from anno_app.anno_utils import list_backups, restore_notes; backups = list_backups(); \
-            if not backups: print('No backups found.'); exit(); \
-            print('Available backups:\n'); \
-            for i, b in enumerate(backups): print(f'{i+1}: {b}'); \
-            try: choice = int(input('\nEnter number of backup to restore: ')); \
-            except (ValueError, EOFError, KeyboardInterrupt): print('\nInvalid choice. Aborting.'); exit(); \
-            if 1 <= choice <= len(backups): restore_notes(backups[choice-1]); \
+        python3 -c "from anno_app.anno_utils import list_backups, restore_notes; backups = list_backups(); 
+            if not backups: print('No backups found.'); exit(); 
+            print('Available backups:\n'); 
+            for i, b in enumerate(backups): print(f'{i+1}: {b}'); 
+            try: choice = int(input('\nEnter number of backup to restore: ')); 
+            except (ValueError, EOFError, KeyboardInterrupt): print('\nInvalid choice. Aborting.'); exit(); 
+            if 1 <= choice <= len(backups): restore_notes(backups[choice-1]); 
             else: print('Invalid number.')"
-        ;;
+        ;; 
     -h|--help)
         echo "Usage: anno [option] [argument]"
         echo "Options:"
@@ -191,12 +189,12 @@ case "$1" in
         echo "  --backup         Create a backup of your notes."
         echo "  --restore        Restore notes from a backup."
         echo "  -h, --help       Show this help message."
-        ;;
+        ;; 
     *)
         echo "Invalid option: $1" >&2
         echo "Use 'anno --help' for usage information."
         exit 1
-        ;;
+        ;; 
 esac
 
 exit 0

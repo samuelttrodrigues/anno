@@ -2,6 +2,7 @@ import sys
 import os
 
 # This is a workaround to make the app runnable from the command line
+# when the CWD is the app directory itself. It adds the project root to the path.
 if os.path.basename(os.getcwd()) == 'anno_app':
     sys.path.append(os.path.dirname(os.getcwd()))
 
@@ -12,7 +13,7 @@ from datetime import datetime
 from collections import defaultdict
 import re
 
-# Import the new utility functions
+# Import the utility functions for backup, export, etc.
 from anno_app.anno_utils import export_notes, backup_notes, list_backups, restore_notes
 
 # --- Configuration ---
@@ -23,6 +24,7 @@ FONT_NAME = "DejaVu Sans"
 MONO_FONT_NAME = "DejaVu Sans Mono"
 
 # --- Themes ---
+# A collection of themes for the GUI, allowing user customization.
 THEMES = {
     "Pastel": {
         "bg": "#B2D8B2", "card": "#F5F5DC", "text_fg": "#3D2B1F",
@@ -63,6 +65,7 @@ THEMES = {
 }
 
 # --- Settings Manager ---
+# Handles loading and saving user preferences (like theme and last opened note).
 def load_settings():
     if not os.path.exists(SETTINGS_FILE):
         return {"theme": "Pastel", "last_note": None}
@@ -72,14 +75,14 @@ def load_settings():
     except (json.JSONDecodeError, IOError):
         return {"theme": "Pastel", "last_note": None}
 
-
 def save_settings(settings):
     os.makedirs(CONFIG_DIR, exist_ok=True)
     with open(SETTINGS_FILE, "w") as f:
         json.dump(settings, f, indent=2)
 
-# --- Main Application ---
+# --- Main Application Class ---
 class AnnotationViewer(tk.Tk):
+    """The main class for the Anno GUI, built with tkinter."""
     def __init__(self):
         super().__init__()
         self.title("Annotations")
@@ -98,14 +101,16 @@ class AnnotationViewer(tk.Tk):
         self.protocol("WM_DELETE_WINDOW", self.on_closing)
 
     def setup_fonts_and_styles(self):
+        """Initializes the fonts and styles used throughout the application."""
         self.text_font = font.Font(family=FONT_NAME, size=12)
         self.tree_font = font.Font(family=FONT_NAME, size=11)
         self.mono_font = font.Font(family=MONO_FONT_NAME, size=11)
         self.list_font = font.Font(family=FONT_NAME, size=12, weight="bold")
         self.style = ttk.Style(self)
-        self.style.theme_use("clam")
+        self.style.theme_use("clam") # A modern, clean theme base
 
     def create_widgets(self):
+        """Creates and arranges all the GUI elements in the main window."""
         # --- Menu Bar ---
         self.menu_bar = tk.Menu(self)
         self.config(menu=self.menu_bar)
@@ -118,11 +123,13 @@ class AnnotationViewer(tk.Tk):
         file_menu.add_separator()
         file_menu.add_command(label="Exit", command=self.on_closing)
 
+        # --- Main Layout (Paned Window) ---
         self.main_frame = ttk.Frame(self, padding=15)
         self.main_frame.pack(fill=tk.BOTH, expand=True)
         self.paned_window = ttk.PanedWindow(self.main_frame, orient=tk.HORIZONTAL)
         self.paned_window.pack(fill=tk.BOTH, expand=True)
 
+        # --- Left Pane (Note List and Search) ---
         left_pane = ttk.Frame(self.paned_window, style="Card.TFrame")
         left_pane.rowconfigure(0, weight=1)
         left_pane.columnconfigure(0, weight=1)
@@ -154,6 +161,7 @@ class AnnotationViewer(tk.Tk):
 
         self.paned_window.add(left_pane, weight=1)
 
+        # --- Right Pane (Note Content and Controls) ---
         content_card = ttk.Frame(self.paned_window, style="Card.TFrame", padding=10)
         content_card.grid_rowconfigure(1, weight=1)
         content_card.grid_columnconfigure(0, weight=1)
@@ -169,6 +177,7 @@ class AnnotationViewer(tk.Tk):
         self.delete_button = ttk.Button(button_container, text="Delete", command=self.delete_note, state=tk.DISABLED)
         self.delete_button.pack(side=tk.LEFT, padx=(5,0))
 
+        # Save/Cancel buttons are hidden until edit mode is activated
         self.save_button = ttk.Button(button_container, text="Save", command=self.save_note)
         self.cancel_button = ttk.Button(button_container, text="Cancel", command=lambda: self.exit_edit_mode(cancel=True))
 
@@ -186,14 +195,18 @@ class AnnotationViewer(tk.Tk):
         self.style_bar = ttk.Label(content_card, text="Use <h>highlight</h>, <i>important</i>, <c>code</c>, [ ] checklist, * list", anchor="center", style="Card.TLabel")
         self.paned_window.add(content_card, weight=3)
 
+        # --- Bindings ---
         self.tree.bind("<<TreeviewSelect>>", self.on_tree_select)
         self.tree.bind("<Double-1>", self.on_double_click)
         self.theme_menu.bind("<<ComboboxSelected>>", self.on_theme_change)
         self.search_entry.bind("<Return>", self.search_by_tag)
 
     def apply_theme(self, theme_name=None):
+        """Applies the selected color theme to all relevant widgets."""
         if theme_name is None: theme_name = self.current_theme.get()
         theme = THEMES[theme_name]
+        
+        # Apply styles to frames, labels, etc.
         self.style.configure("TFrame", background=theme["bg"])
         self.style.configure("TPanedWindow", background=theme["bg"])
         self.style.configure("Card.TFrame", background=theme["card"])
@@ -202,16 +215,18 @@ class AnnotationViewer(tk.Tk):
         self.style.map("Card.Treeview", background=[("selected", theme["select_bg"] )], foreground=[("selected", theme["select_fg"] )])
         self.text_area.configure(bg=theme["card"], fg=theme["text_fg"], insertbackground=theme["text_fg"])
         
+        # Configure the colors for text area tags (highlight, important, etc.)
         self.text_area.tag_configure("highlight", background=theme["highlight"])
         self.text_area.tag_configure("important", foreground=theme["important"], font=(FONT_NAME, 12, "bold"))
         self.text_area.tag_configure("code", background=theme["code_bg"], font=self.mono_font)
-        self.text_area.tag_configure("hidden", elide=True)
+        self.text_area.tag_configure("hidden", elide=True) # Used to hide markdown tags
         
         self.text_area.tag_configure("checklist_done", foreground=theme["checklist_done"], font=self.list_font)
         self.text_area.tag_configure("checklist_pending", foreground=theme["checklist_pending"], font=self.list_font)
         self.text_area.tag_configure("list_bullet", foreground=theme.get("text_fg", "#000000"), font=self.list_font)
 
     def parse_note_content(self, content):
+        """Parses the raw text of a note to separate title, tags, and body."""
         lines = content.split('\n', 2)
         title = lines[0] if lines else "Untitled"
         tags = []
@@ -226,6 +241,7 @@ class AnnotationViewer(tk.Tk):
         return title, tags, body
 
     def load_annotations(self):
+        """Loads all notes from the JSON file and populates the UI."""
         if not os.path.exists(ANNOTATIONS_FILE):
             self.text_area.config(state=tk.NORMAL); self.text_area.insert("1.0", "No annotations file found."); self.text_area.config(state=tk.DISABLED)
             return
@@ -250,6 +266,7 @@ class AnnotationViewer(tk.Tk):
         self.load_last_note()
 
     def load_last_note(self):
+        """Selects the last opened note when the application starts."""
         last_note_ts = self.settings.get("last_note")
         if last_note_ts:
             for note in self.all_notes:
@@ -260,6 +277,7 @@ class AnnotationViewer(tk.Tk):
                     break
 
     def populate_tree(self, notes_to_display):
+        """Fills the Treeview with notes, organized by year and month."""
         for item in self.tree.get_children(): self.tree.delete(item)
         notes_by_date = defaultdict(lambda: defaultdict(list))
         for note in notes_to_display:
@@ -274,6 +292,7 @@ class AnnotationViewer(tk.Tk):
                     self.tree.insert(month_id, "end", iid=note['id'], text=note['title'])
 
     def on_tree_select(self, event):
+        """Handles the event when a user clicks on a note in the list."""
         selected_id = self.tree.selection()
         if not selected_id or not str(selected_id[0]).isdigit():
             self.edit_button.config(state=tk.DISABLED)
@@ -285,9 +304,11 @@ class AnnotationViewer(tk.Tk):
         self.display_note()
 
     def on_double_click(self, event):
+        """Enters edit mode when a note is double-clicked."""
         if self.tree.selection(): self.enter_edit_mode()
 
     def display_note(self):
+        """Displays the content of the currently selected note in the text area."""
         if self.current_note_id is None: return
         
         note = next((n for n in self.all_notes if n['id'] == self.current_note_id), None)
@@ -307,160 +328,10 @@ class AnnotationViewer(tk.Tk):
         self.text_area.config(state=tk.DISABLED)
 
     def apply_styling(self):
+        """Applies all formatting to the text area using regex and tags."""
         content = self.text_area.get("1.0", tk.END)
         for tag in self.text_area.tag_names(): self.text_area.tag_remove(tag, "1.0", tk.END)
 
+        # Handle inline tags like <h>, <i>, <c>
         for tag, pattern in [("h", "highlight"), ("i", "important"), ("c", "code")]:
-            for match in re.finditer(f"<{tag}>(.*?)</{tag}>", content, re.DOTALL):
-                start_tag, end_tag = match.span(0)
-                start_content, end_content = match.span(1)
-                self.text_area.tag_add(pattern, f"1.0+{start_content}c", f"1.0+{end_content}c")
-                self.text_area.tag_add("hidden", f"1.0+{start_tag}c", f"1.0+{start_content}c")
-                self.text_area.tag_add("hidden", f"1.0+{end_content}c", f"1.0+{end_tag}c")
-        
-        for i, line in enumerate(content.split('\n')):
-            line_num = i + 1
-            if re.match(r'^\s*\[x\].*$', line):
-                self.text_area.tag_add("checklist_done", f"{line_num}.0", f"{line_num}.end")
-            elif re.match(r'^\s*\[ \].*$', line):
-                self.text_area.tag_add("checklist_pending", f"{line_num}.0", f"{line_num}.end")
-            elif re.match(r'^\s*([\*\-]|1+)\s+.*$', line):
-                self.text_area.tag_add("list_bullet", f"{line_num}.0", f"{line_num}.end")
-
-    def enter_edit_mode(self):
-        if self.current_note_id is None: return
-        self.edit_button.pack_forget()
-        self.delete_button.pack_forget()
-        self.save_button.pack(side=tk.LEFT, padx=(0, 5))
-        self.cancel_button.pack(side=tk.LEFT)
-        self.style_bar.grid(row=2, column=0, sticky="ew", pady=(5, 0))
-        self.text_area.config(state=tk.NORMAL)
-        for tag in self.text_area.tag_names(): self.text_area.tag_remove(tag, "1.0", tk.END)
-
-    def exit_edit_mode(self, cancel=False):
-        self.save_button.pack_forget()
-        self.cancel_button.pack_forget()
-        self.edit_button.pack(side=tk.LEFT)
-        self.delete_button.pack(side=tk.LEFT, padx=(5,0))
-        self.style_bar.grid_forget()
-        if cancel:
-            self.display_note()
-
-    def save_note(self):
-        if self.current_note_id is None: return
-        new_content = self.text_area.get("1.0", tk.END).strip()
-        
-        note_to_update = next((n for n in self.all_notes if n['id'] == self.current_note_id), None)
-        if note_to_update:
-            original_index = -1
-            for i, raw_note in enumerate(self.raw_notes):
-                if raw_note['timestamp'] == note_to_update['timestamp']:
-                    original_index = i
-                    break
-            if original_index != -1:
-                 self.raw_notes[original_index]['content'] = new_content
-
-        with open(ANNOTATIONS_FILE, "w") as f:
-            json.dump(self.raw_notes, f, indent=2)
-        
-        self.load_annotations()
-        self.exit_edit_mode(cancel=True)
-
-    def delete_note(self):
-        if self.current_note_id is None: return
-
-        note_to_delete = next((n for n in self.all_notes if n['id'] == self.current_note_id), None)
-        if not note_to_delete: return
-
-        if messagebox.askyesno("Delete Note", f"Are you sure you want to delete the note titled: \n'{note_to_delete['title']}'?"):
-            self.raw_notes = [n for n in self.raw_notes if n['timestamp'] != note_to_delete['timestamp']]
-            with open(ANNOTATIONS_FILE, "w") as f:
-                json.dump(self.raw_notes, f, indent=2)
-            self.load_annotations()
-
-    def on_theme_change(self, event):
-        self.settings["theme"] = self.current_theme.get()
-        self.apply_theme()
-        if self.current_note_id is not None:
-            self.display_note()
-
-    def on_closing(self):
-        if self.current_note_id is not None:
-            note = next((n for n in self.all_notes if n['id'] == self.current_note_id), None)
-            if note:
-                self.settings["last_note"] = note["timestamp"]
-        save_settings(self.settings)
-        self.destroy()
-
-    def search_by_tag(self, event=None):
-        search_term = self.search_var.get().strip().lower()
-        if not search_term:
-            self.populate_tree(self.all_notes)
-            return
-        
-        if search_term.startswith('#'): search_term = search_term[1:]
-
-        filtered_notes = [
-            note for note in self.all_notes 
-            if any(search_term == tag.lower() for tag in note['tags'])
-        ]
-        self.populate_tree(filtered_notes)
-
-    def clear_search(self):
-        self.search_var.set("")
-        self.populate_tree(self.all_notes)
-        self.tree.focus_set()
-
-    # --- GUI Wrappers for Utils ---
-    def gui_export_notes(self):
-        target_dir = filedialog.askdirectory(title="Select Export Directory")
-        if target_dir:
-            if export_notes(target_dir):
-                messagebox.showinfo("Export Successful", f"All notes have been exported to {target_dir}")
-            else:
-                messagebox.showerror("Export Failed", "Could not export notes. See terminal for details.")
-
-    def gui_backup_notes(self):
-        backup_path = backup_notes()
-        if backup_path:
-            messagebox.showinfo("Backup Successful", f"Backup created at:\n{backup_path}")
-        else:
-            messagebox.showerror("Backup Failed", "Could not create backup. See terminal for details.")
-
-    def gui_restore_notes(self):
-        backups = list_backups()
-        if not backups:
-            messagebox.showinfo("Restore", "No backups found.")
-            return
-
-        # We need a new Toplevel window to ask the user which backup to restore
-        win = tk.Toplevel(self)
-        win.title("Restore from Backup")
-        ttk.Label(win, text="Select a backup to restore:").pack(padx=10, pady=10)
-        
-        listbox = tk.Listbox(win, width=50, height=15)
-        listbox.pack(padx=10, pady=10)
-        for b in backups:
-            listbox.insert(tk.END, b)
-
-        def on_restore():
-            selection = listbox.curselection()
-            if not selection:
-                messagebox.showwarning("No Selection", "Please select a backup file.")
-                return
-            
-            selected_backup = listbox.get(selection[0])
-            if messagebox.askyesno("Confirm Restore", f"Are you sure you want to restore from:\n{selected_backup}\n\nThis will overwrite your current notes."):
-                if restore_notes(selected_backup):
-                    messagebox.showinfo("Restore Successful", "Notes restored. The application will now reload.")
-                    win.destroy()
-                    self.load_annotations() # Reload notes
-                else:
-                    messagebox.showerror("Restore Failed", "Could not restore notes. See terminal for details.")
-        
-        ttk.Button(win, text="Restore", command=on_restore).pack(pady=5)
-        ttk.Button(win, text="Cancel", command=win.destroy).pack(pady=5)
-
-if __name__ == "__main__":
-    app = AnnotationViewer()
-    app.mainloop()
+            for match in re.finditer(f"<{tag}>(.*?)</{tag}>",
