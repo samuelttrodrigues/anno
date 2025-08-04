@@ -1,10 +1,7 @@
 Package: anno
 Version: 1.0.0
-Section: utils
-Priority: optional
 Architecture: all
+Maintainer: Sam <sam@example.com>
+Description: A simple note-taking application for the terminal and GUI.
+ Anno is a lightweight, fast, and versatile note-taking application designed for the command line, but with a powerful GUI as well.
 Depends: python3, python3-tk, jq
-Maintainer: Your Name <your.email@example.com>
-Description: A lightweight annotation application for Linux.
- This application allows you to quickly take notes from the terminal
- and view them in a graphical interface or directly in the terminal.
