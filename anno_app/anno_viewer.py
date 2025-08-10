@@ -334,4 +334,170 @@ class AnnotationViewer(tk.Tk):
 
         # Handle inline tags like <h>, <i>, <c>
         for tag, pattern in [("h", "highlight"), ("i", "important"), ("c", "code")]:
-            for match in re.finditer(f"<{tag}>(.*?)</{tag}>",
+            for match in re.finditer(f"<{tag}>(.*?)</{tag}>", content, re.DOTALL):
+                start_tag, end_tag = match.span(0)
+                start_content, end_content = match.span(1)
+                self.text_area.tag_add(pattern, f"1.0+{start_content}c", f"1.0+{end_content}c")
+                self.text_area.tag_add("hidden", f"1.0+{start_tag}c", f"1.0+{start_content}c")
+                self.text_area.tag_add("hidden", f"1.0+{end_content}c", f"1.0+{end_tag}c")
+        
+        # Handle line-based formatting like checklists and lists
+        for i, line in enumerate(content.split('\n')):
+            line_num = i + 1
+            if re.match(r'^\s*\[x\].*$', line):
+                self.text_area.tag_add("checklist_done", f"{line_num}.0", f"{line_num}.end")
+            elif re.match(r'^\s*\[ \].*$', line):
+                self.text_area.tag_add("checklist_pending", f"{line_num}.0", f"{line_num}.end")
+            elif re.match(r'^\s*([\*\-]|\\\d+\.)\s+.*$', line):
+                self.text_area.tag_add("list_bullet", f"{line_num}.0", f"{line_num}.end")
+
+    def enter_edit_mode(self):
+        """Switches the UI to editing mode."""
+        if self.current_note_id is None: return
+        self.edit_button.pack_forget()
+        self.delete_button.pack_forget()
+        self.save_button.pack(side=tk.LEFT, padx=(0, 5))
+        self.cancel_button.pack(side=tk.LEFT)
+        self.style_bar.grid(row=2, column=0, sticky="ew", pady=(5, 0))
+        self.text_area.config(state=tk.NORMAL)
+        # Remove all styling tags to show the raw markdown
+        for tag in self.text_area.tag_names(): self.text_area.tag_remove(tag, "1.0", tk.END)
+
+    def exit_edit_mode(self, cancel=False):
+        """Switches the UI back to viewing mode."""
+        self.save_button.pack_forget()
+        self.cancel_button.pack_forget()
+        self.edit_button.pack(side=tk.LEFT)
+        self.delete_button.pack(side=tk.LEFT, padx=(5,0))
+        self.style_bar.grid_forget()
+        if cancel:
+            self.display_note() # Reload the note to show styling
+
+    def save_note(self):
+        """Saves the currently edited note back to the JSON file."""
+        if self.current_note_id is None: return
+        new_content = self.text_area.get("1.0", tk.END).strip()
+        
+        note_to_update = next((n for n in self.all_notes if n['id'] == self.current_note_id), None)
+        if note_to_update:
+            # Find the original note in the raw list to update it
+            original_index = -1
+            for i, raw_note in enumerate(self.raw_notes):
+                if raw_note['timestamp'] == note_to_update['timestamp']:
+                    original_index = i
+                    break
+            if original_index != -1:
+                 self.raw_notes[original_index]['content'] = new_content
+
+        with open(ANNOTATIONS_FILE, "w") as f:
+            json.dump(self.raw_notes, f, indent=2)
+        
+        self.load_annotations() # Reload all notes to reflect the change
+        self.exit_edit_mode(cancel=True)
+
+    def delete_note(self):
+        """Deletes the currently selected note after a confirmation dialog."""
+        if self.current_note_id is None: return
+
+        note_to_delete = next((n for n in self.all_notes if n['id'] == self.current_note_id), None)
+        if not note_to_delete: return
+
+        if messagebox.askyesno("Delete Note", f"Are you sure you want to delete the note titled: \n'{note_to_delete['title']}'?"):
+            self.raw_notes = [n for n in self.raw_notes if n['timestamp'] != note_to_delete['timestamp']]
+            with open(ANNOTATIONS_FILE, "w") as f:
+                json.dump(self.raw_notes, f, indent=2)
+            self.load_annotations()
+
+    def on_theme_change(self, event):
+        """Saves the new theme and reapplies it to the UI."""
+        self.settings["theme"] = self.current_theme.get()
+        self.apply_theme()
+        if self.current_note_id is not None:
+            self.display_note()
+
+    def on_closing(self):
+        """Saves settings before the application window is closed."""
+        if self.current_note_id is not None:
+            note = next((n for n in self.all_notes if n['id'] == self.current_note_id), None)
+            if note:
+                self.settings["last_note"] = note["timestamp"]
+        save_settings(self.settings)
+        self.destroy()
+
+    def search_by_tag(self, event=None):
+        """Filters the notes in the Treeview based on a tag search."""
+        search_term = self.search_var.get().strip().lower()
+        if not search_term:
+            self.populate_tree(self.all_notes)
+            return
+        
+        if search_term.startswith('#'): search_term = search_term[1:]
+
+        filtered_notes = [
+            note for note in self.all_notes 
+            if any(search_term == tag.lower() for tag in note['tags'])
+        ]
+        self.populate_tree(filtered_notes)
+
+    def clear_search(self):
+        """Clears the search filter and shows all notes."""
+        self.search_var.set("")
+        self.populate_tree(self.all_notes)
+        self.tree.focus_set()
+
+    # --- GUI Wrappers for Utility Functions ---
+    def gui_export_notes(self):
+        """Opens a dialog to choose a directory for exporting notes."""
+        target_dir = filedialog.askdirectory(title="Select Export Directory")
+        if target_dir:
+            if export_notes(target_dir):
+                messagebox.showinfo("Export Successful", f"All notes have been exported to {target_dir}")
+            else:
+                messagebox.showerror("Export Failed", "Could not export notes. See terminal for details.")
+
+    def gui_backup_notes(self):
+        """Triggers the backup process and shows a confirmation message."""
+        backup_path = backup_notes()
+        if backup_path:
+            messagebox.showinfo("Backup Successful", f"Backup created at:\n{backup_path}")
+        else:
+            messagebox.showerror("Backup Failed", "Could not create backup. See terminal for details.")
+
+    def gui_restore_notes(self):
+        """Opens a new window to select and restore a backup."""
+        backups = list_backups()
+        if not backups:
+            messagebox.showinfo("Restore", "No backups found.")
+            return
+
+        win = tk.Toplevel(self)
+        win.title("Restore from Backup")
+        ttk.Label(win, text="Select a backup to restore:").pack(padx=10, pady=10)
+        
+        listbox = tk.Listbox(win, width=50, height=15)
+        listbox.pack(padx=10, pady=10)
+        for b in backups:
+            listbox.insert(tk.END, b)
+
+        def on_restore():
+            selection = listbox.curselection()
+            if not selection:
+                messagebox.showwarning("No Selection", "Please select a backup file.")
+                return
+            
+            selected_backup = listbox.get(selection[0])
+            if messagebox.askyesno("Confirm Restore", f"Are you sure you want to restore from:\n{selected_backup}\n\nThis will overwrite your current notes."):
+                if restore_notes(selected_backup):
+                    messagebox.showinfo("Restore Successful", "Notes restored. The application will now reload.")
+                    win.destroy()
+                    self.load_annotations() # Reload notes to show the restored data
+                else:
+                    messagebox.showerror("Restore Failed", "Could not restore notes. See terminal for details.")
+        
+        ttk.Button(win, text="Restore", command=on_restore).pack(pady=5)
+        ttk.Button(win, text="Cancel", command=win.destroy).pack(pady=5)
+
+# --- Script Entry Point ---
+if __name__ == "__main__":
+    app = AnnotationViewer()
+    app.mainloop()

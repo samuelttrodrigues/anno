@@ -1,8 +1,7 @@
-# Anno - A Simple Note-Taking Application
+# Anno
 
-Anno is a lightweight, fast, and versatile note-taking application designed for the command line, but with a powerful GUI as well. It allows you to quickly jot down, edit, search, and manage your notes without leaving the terminal, while also providing a rich graphical interface for more complex tasks.
-
-![Anno GUI Screenshot](https://i.imgur.com/YOUR_SCREENSHOT_URL.png)  <!-- Placeholder: You can upload a screenshot and replace this URL -->
+A lightweight annotation application designed to take quick notes from your terminal and keep them organized for later consulting.
+Using GNU nano as its writing app and saving its temporary files to later check it on the GUI or TUI
 
 ---
 
